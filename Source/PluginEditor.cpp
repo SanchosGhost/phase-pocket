@@ -41,8 +41,12 @@ void ModernDial::paint(juce::Graphics& g)
     g.setGradientFill(face); g.fillEllipse(centre.x - radius, centre.y - radius, 2.0f * radius, 2.0f * radius);
     g.setColour(juce::Colour(0xff304866)); g.drawEllipse(centre.x - radius, centre.y - radius, 2.0f * radius, 2.0f * radius, 1.3f * scale);
     g.setColour(juce::Colours::white.withAlpha(0.07f));
-    g.drawArc(centre.x - radius + 2.0f, centre.y - radius + 2.0f, 2.0f * radius - 4.0f, 2.0f * radius - 4.0f,
-              juce::MathConstants<float>::pi * 1.12f, juce::MathConstants<float>::pi * 1.86f, 1.0f * scale);
+    juce::Path rimHighlight;
+    rimHighlight.addArc(centre.x - radius + 2.0f, centre.y - radius + 2.0f,
+                        2.0f * radius - 4.0f, 2.0f * radius - 4.0f,
+                        juce::MathConstants<float>::pi * 1.12f,
+                        juce::MathConstants<float>::pi * 1.86f, true);
+    g.strokePath(rimHighlight, juce::PathStrokeType(1.0f * scale));
     const float start = juce::MathConstants<float>::pi * 1.25f;
     const float end = juce::MathConstants<float>::pi * 2.75f;
     const float proportion = static_cast<float>(valueToProportionOfLength(getValue()));
@@ -168,7 +172,7 @@ void PhasePocketAudioProcessorEditor::paint(juce::Graphics& g)
     juce::ColourGradient vertical(juce::Colour(0xff121f32),600.0f,0.0f,juce::Colour(0xff03070d),600.0f,896.0f,false);vertical.addColour(0.28,juce::Colour(0xff08111d));vertical.addColour(0.68,juce::Colour(0xff050a12));g.setGradientFill(vertical);g.fillRect(0.0f,0.0f,1200.0f,896.0f);
     g.setGradientFill(juce::ColourGradient(juce::Colour(0xff28446c).withAlpha(0.26f),560.0f,20.0f,juce::Colours::transparentBlack,560.0f,470.0f,true));g.fillEllipse(180.0f,-270.0f,820.0f,650.0f);
     g.setGradientFill(juce::ColourGradient(juce::Colour(0xff133a4a).withAlpha(0.12f),1080.0f,380.0f,juce::Colours::transparentBlack,1080.0f,780.0f,true));g.fillEllipse(730.0f,80.0f,700.0f,700.0f);
-    g.setColour(juce::Colours::black.withAlpha(0.18f));g.fillRect(0.0f,100.0f,1200.0f,40.0f);g.fillRect(0.0f,645.0f,1200.0f,64.0f);
+    g.setColour(juce::Colours::black.withAlpha(0.18f));g.fillRect(0.0f,100.0f,1200.0f,40.0f);g.fillRect(0.0f,645.0f,1200.0f,791.0f-727.0f);
     for(int i=0;i<10;++i){juce::Path contour;contour.startNewSubPath(330.0f+static_cast<float>(i)*20.0f,-5.0f);contour.cubicTo(440.0f+static_cast<float>(i)*20.0f,60.0f,430.0f+static_cast<float>(i)*29.0f,125.0f,620.0f+static_cast<float>(i)*34.0f,168.0f);g.setColour(juce::Colour(0xff496487).withAlpha(0.12f+static_cast<float>(i%3)*0.025f));g.strokePath(contour,juce::PathStrokeType(1.0f));}
     drawLabel(g,"Phase Pocket",{115.0f,24.0f,360.0f,48.0f},38.0f,primaryText());drawLabel(g,"R  A  I  N  L  I  N  E",{118.0f,72.0f,300.0f,20.0f},13.0f,secondaryText());
     for(int i=0;i<5;++i){const float x=42.0f+static_cast<float>(i)*11.0f;const float barHeight=20.0f+static_cast<float>(2-std::abs(2-i))*13.0f;g.setColour(juce::Colour(0xff4f7cff).withAlpha(0.18f));g.fillRoundedRectangle(x-5.0f,45.0f-barHeight*0.5f-5.0f,15.0f,barHeight+10.0f,7.5f);juce::ColourGradient bar(juce::Colour(0xff756dff),x,25.0f,juce::Colour(0xff27d8dc),x,76.0f,false);g.setGradientFill(bar);g.fillRoundedRectangle(x,45.0f-barHeight*0.5f,5.0f,barHeight,2.5f);}
