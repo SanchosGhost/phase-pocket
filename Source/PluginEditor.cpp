@@ -1,195 +1,143 @@
 #include "PluginEditor.h"
-
-namespace
-{
-juce::Colour background() { return juce::Colour(0xff050a12); }
-juce::Colour primaryText() { return juce::Colour(0xffdbe5ff); }
-juce::Colour secondaryText() { return juce::Colour(0xff8e9bb8); }
-void drawLabel(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area,
-               float size, juce::Colour colour, int justification = juce::Justification::centredLeft)
-{
-    g.setColour(colour); g.setFont(juce::Font(juce::FontOptions(size))); g.drawText(text, area, justification);
+namespace {
+juce::Font uiFont(float size) {
+#if JUCE_LINUX
+    return juce::Font(juce::FontOptions("Liberation Sans",size,juce::Font::plain));
+#else
+    return juce::Font(juce::FontOptions("Arial",size,juce::Font::plain));
+#endif
 }
+void text(juce::Graphics& g,const juce::String& s,juce::Rectangle<float> r,float size,juce::Colour c,int align=juce::Justification::centredLeft) {
+    g.setColour(c);g.setFont(uiFont(size));g.drawText(s,r,align);
 }
-
-ModernDial::ModernDial(juce::String newTitle, juce::String newSubtitle, juce::String newUnit,
-                       juce::Colour newAccent, bool infinity)
-    : title(std::move(newTitle)), subtitle(std::move(newSubtitle)), unit(std::move(newUnit)),
-      accent(newAccent), infinityAtMaximum(infinity)
-{
-    setSliderStyle(juce::Slider::RotaryVerticalDrag);
-    setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    setWantsKeyboardFocus(true);
+void stroke(juce::Graphics& g,const juce::Path& p,juce::Colour c,float width) {
+    g.setColour(c);g.strokePath(p,juce::PathStrokeType(width,juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
 }
-
-void ModernDial::paint(juce::Graphics& g)
-{
-    const auto bounds = getLocalBounds().toFloat();
-    const float scale = juce::jmin(bounds.getWidth() / 180.0f, bounds.getHeight() / 220.0f);
-    const float radius = juce::jmin(bounds.getWidth() * 0.39f, bounds.getHeight() * 0.32f);
-    const auto centre = juce::Point<float>(bounds.getCentreX(), bounds.getY() + radius + 16.0f * scale);
-    for (int layer = 5; layer >= 1; --layer)
-    {
-        const float spread = static_cast<float>(layer) * 3.2f * scale;
-        g.setColour(juce::Colours::black.withAlpha(0.055f * static_cast<float>(6 - layer)));
-        g.fillEllipse(centre.x - radius - spread, centre.y - radius + 8.0f * scale - spread * 0.25f,
-                      2.0f * (radius + spread), 2.0f * (radius + spread));
+juce::String hz(double v) {return v>=1000?juce::String(v/1000,1)+" kHz":juce::String(juce::roundToInt(v))+" Hz";}
+}
+juce::Colour PocketLook::ink() const {return juce::Colour(dark?0xffdce5fc:0xff242527);}
+juce::Colour PocketLook::muted() const {return juce::Colour(dark?0xff97a6c2:0xff6b6c70);}
+juce::Font PocketLook::getTextButtonFont(juce::TextButton&,int) {return uiFont(16);}
+void PocketLook::drawButtonBackground(juce::Graphics& g,juce::Button& b,const juce::Colour&,bool hover,bool down) {
+    auto r=b.getLocalBounds().toFloat().reduced(2);bool selected=b.getToggleState();
+    bool icon=b.getButtonText()=="theme"||b.getButtonText()=="power";
+    auto top=juce::Colour(dark?(selected?0xff586fdb:0xff172130):(selected?0xff393b3e:0xfffafafa));
+    auto bottom=juce::Colour(dark?(selected?0xff3246a1:0xff070d16):(selected?0xff17191b:0xffe3e4e6));
+    if(hover||down){top=top.brighter(.12f);bottom=bottom.brighter(.1f);}
+    g.setColour(juce::Colours::black.withAlpha(dark?.5f:.13f));g.fillRoundedRectangle(r.translated(0,3),icon?13.f:18.f);
+    if(dark&&selected){g.setColour(top.withAlpha(.13f));g.fillRoundedRectangle(r.expanded(2),20);}
+    g.setGradientFill(juce::ColourGradient(top,0,r.getY(),bottom,0,r.getBottom(),false));g.fillRoundedRectangle(r,icon?13.f:18.f);
+    g.setColour(juce::Colour(dark?0xff34445b:0xffc2c3c6));g.drawRoundedRectangle(r,icon?13.f:18.f,.7f);
+    if(b.hasKeyboardFocus(false)){g.setColour(ink());g.drawRoundedRectangle(r.reduced(2),12,1);}
+}
+void PocketLook::drawButtonText(juce::Graphics& g,juce::TextButton& b,bool,bool) {
+    auto r=b.getLocalBounds().toFloat();const auto name=b.getButtonText();
+    if(name!="theme"&&name!="power") {text(g,name,r,juce::jmin(16.f,r.getHeight()*.36f),b.getToggleState()?juce::Colours::white:ink(),juce::Justification::centred);return;}
+    const auto c=r.getCentre();float s=juce::jmin(r.getWidth(),r.getHeight())/44.f;juce::Path p;
+    if(name=="power") {
+        p.addCentredArc(0,1,9,9,0,.65f,juce::MathConstants<float>::twoPi-.65f,true);
+        p.startNewSubPath(0,-11);p.lineTo(0,-1);
+    } else if(dark) {
+        p.addEllipse(-4,-4,8,8);
+        for(int i=0;i<8;++i){float a=float(i)*juce::MathConstants<float>::pi/4;p.startNewSubPath(7*std::cos(a),7*std::sin(a));p.lineTo(10*std::cos(a),10*std::sin(a));}
+    } else {
+        p.startNewSubPath(8,3);p.cubicTo(-4,8,-10,-4,-2,-9);p.cubicTo(-16,-8,-9,17,8,3);p.closeSubPath();
     }
-    juce::ColourGradient face(juce::Colour(0xff22344d), centre.x - radius, centre.y - radius,
-                              juce::Colour(0xff050a11), centre.x + radius, centre.y + radius, false);
-    face.addColour(0.38, juce::Colour(0xff14243a)); face.addColour(0.72, juce::Colour(0xff0a1421));
-    g.setGradientFill(face); g.fillEllipse(centre.x - radius, centre.y - radius, 2.0f * radius, 2.0f * radius);
-    g.setColour(juce::Colour(0xff304866)); g.drawEllipse(centre.x - radius, centre.y - radius, 2.0f * radius, 2.0f * radius, 1.3f * scale);
-    g.setColour(juce::Colours::white.withAlpha(0.07f));
-    juce::Path rimHighlight;
-    rimHighlight.addArc(centre.x - radius + 2.0f, centre.y - radius + 2.0f,
-                        2.0f * radius - 4.0f, 2.0f * radius - 4.0f,
-                        juce::MathConstants<float>::pi * 1.12f,
-                        juce::MathConstants<float>::pi * 1.86f, true);
-    g.strokePath(rimHighlight, juce::PathStrokeType(1.0f * scale));
-    const float start = juce::MathConstants<float>::pi * 1.25f;
-    const float end = juce::MathConstants<float>::pi * 2.75f;
-    const float proportion = static_cast<float>(valueToProportionOfLength(getValue()));
-    juce::Path track, arc;
-    track.addCentredArc(centre.x, centre.y, radius + 8.0f * scale, radius + 8.0f * scale, 0.0f, start, end, true);
-    g.setColour(juce::Colour(0xff111a27));
-    g.strokePath(track, juce::PathStrokeType(8.0f * scale, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    if (proportion > 0.0f)
-    {
-        arc.addCentredArc(centre.x, centre.y, radius + 8.0f * scale, radius + 8.0f * scale,
-                          0.0f, start, start + (end - start) * proportion, true);
-        g.setColour(accent.withAlpha(0.14f));
-        g.strokePath(arc, juce::PathStrokeType(16.0f * scale, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        g.setColour(accent.withAlpha(0.25f));
-        g.strokePath(arc, juce::PathStrokeType(11.0f * scale, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        juce::ColourGradient arcGradient(accent.brighter(0.55f), centre.x - radius, centre.y - radius,
-                                         accent.darker(0.18f), centre.x + radius, centre.y + radius, false);
-        arcGradient.addColour(0.5, accent); g.setGradientFill(arcGradient);
-        g.strokePath(arc, juce::PathStrokeType(6.5f * scale, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    p.applyTransform(juce::AffineTransform::scale(s).translated(c.x,c.y));
+    stroke(g,p,ink().withAlpha(name=="power"&&b.getToggleState()?.45f:1.f),1.7f*s);
+}
+void PocketLook::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int h,float pos,float minPos,float maxPos,juce::Slider::SliderStyle style,juce::Slider&) {
+    const float cy=float(y)+float(h)*.5f;float left=float(x),right=float(x+w);
+    if(style==juce::Slider::TwoValueHorizontal){left=minPos;right=maxPos;}
+    else right=pos;
+    g.setColour(juce::Colour(dark?0xff172334:0xffc9cacc));g.fillRoundedRectangle(float(x),cy-3,float(w),6,3);
+    const auto active=juce::Rectangle<float>(left,cy-3,juce::jmax(.1f,right-left),6);
+    if(dark){g.setColour(juce::Colour(0xff3b94ee).withAlpha(.12f));g.fillRoundedRectangle(active.expanded(2),5);}
+    g.setGradientFill(juce::ColourGradient(juce::Colour(dark?0xff4e78ff:0xff303236),left,cy,juce::Colour(dark?0xff35d6dc:0xff65676b),right+1,cy,false));g.fillRoundedRectangle(active,3);
+    auto thumb=[&](float px){g.setColour(juce::Colours::black.withAlpha(.25f));g.fillEllipse(px-7,cy-4,14,14);g.setGradientFill(juce::ColourGradient(juce::Colours::white,px,cy-7,juce::Colour(dark?0xffbbd0ff:0xffd7d8db),px,cy+7,false));g.fillEllipse(px-6,cy-6,12,12);g.setColour(juce::Colour(dark?0xff638bda:0xff85878b));g.drawEllipse(px-6,cy-6,12,12,1);};
+    if(style==juce::Slider::TwoValueHorizontal){thumb(minPos);thumb(maxPos);}else thumb(pos);
+}
+ModernDial::ModernDial(PocketLook& l,juce::String t,juce::String sub,juce::String u,juce::Colour a,bool inf):look(l),title(t),subtitle(sub),unit(u),accent(a),infinity(inf) {
+    setSliderStyle(juce::Slider::RotaryVerticalDrag);setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);setName(t);setWantsKeyboardFocus(true);
+}
+void ModernDial::paint(juce::Graphics& g) {
+    const float s=float(getWidth())/185.f,r=65*s;const juce::Point<float> c(float(getWidth())*.5f,float(getHeight())*.5f);
+    const auto face=juce::Rectangle<float>(2*r,2*r).withCentre(c);
+    for(int i=6;i>0;--i){g.setColour(juce::Colours::black.withAlpha(look.dark?.065f:.022f));g.fillEllipse(face.expanded(float(i)*2*s).translated(0,float(i+2)*s));}
+    auto top=juce::Colour(look.dark?0xff233349:0xfffafafa),bottom=juce::Colour(look.dark?0xff060b12:0xffd5d6d9);
+    juce::ColourGradient surface(top,c.x-r,c.y-r,bottom,c.x+r,c.y+r,false);surface.addColour(.42,juce::Colour(look.dark?0xff142032:0xffeeeeef));g.setGradientFill(surface);g.fillEllipse(face);
+    g.setColour(juce::Colour(look.dark?0xff344963:0xffbabcc0));g.drawEllipse(face,1*s);
+    const float p=float(valueToProportionOfLength(getValue()));const float start=juce::MathConstants<float>::pi*1.25f,end=start+juce::MathConstants<float>::pi*1.5f*p;
+    juce::Path track,arc;track.addCentredArc(c.x,c.y,r+8*s,r+8*s,0,start,juce::MathConstants<float>::pi*2.75f,true);
+    stroke(g,track,juce::Colour(look.dark?0xff050a11:0xffc7c8ca),6*s);
+    if(p>0){arc.addCentredArc(c.x,c.y,r+8*s,r+8*s,0,start,end,true);
+        if(look.dark){stroke(g,arc,accent.withAlpha(.08f),16*s);stroke(g,arc,accent.withAlpha(.16f),10*s);}
+        juce::ColourGradient gradient(look.dark?accent.brighter(.3f):juce::Colour(0xff292b2f),c.x-r,c.y+r,look.dark?accent.interpolatedWith(juce::Colour(0xffaa8aff),.4f):juce::Colour(0xff606268),c.x+r,c.y-r,false);
+        g.setGradientFill(gradient);g.strokePath(arc,juce::PathStrokeType(5*s,juce::PathStrokeType::curved,juce::PathStrokeType::rounded));}
+    // JUCE arcs measure clockwise from 12 o'clock: x=sin(a), y=-cos(a).
+    auto marker=juce::Point<float>(c.x+(r+8*s)*std::sin(end),c.y-(r+8*s)*std::cos(end));
+    g.setColour(juce::Colours::black.withAlpha(.5f));g.fillEllipse(marker.x-7*s,marker.y-5*s,14*s,14*s);
+    g.setGradientFill(juce::ColourGradient(juce::Colours::white,marker.x,marker.y-6*s,juce::Colour(look.dark?0xffc0d6ff:0xffd1d2d4),marker.x,marker.y+6*s,false));g.fillEllipse(marker.x-5.5f*s,marker.y-5.5f*s,11*s,11*s);
+    text(g,title,{c.x-r,c.y-43*s,2*r,24*s},16*s,look.ink(),juce::Justification::centred);
+    auto value=infinity&&p>.9995f?juce::String::fromUTF8("∞"):juce::String(getValue(),getInterval()<1?1:0)+(unit=="%"?"%":" ms");
+    text(g,value,{c.x-r,c.y-18*s,2*r,40*s},unit=="ms"?26*s:30*s,look.ink(),juce::Justification::centred);
+    text(g,subtitle,{c.x-r,c.y+25*s,2*r,22*s},12*s,look.muted(),juce::Justification::centred);
+    if(hasKeyboardFocus(false)){g.setColour(look.muted());g.drawEllipse(face.expanded(3*s),1*s);}
+}
+PhasePocketAudioProcessorEditor::PhasePocketAudioProcessorEditor(PhasePocketAudioProcessor& p):AudioProcessorEditor(&p),audioProcessor(p) {
+    juce::PropertiesFile::Options o;o.applicationName="PhasePocket";o.filenameSuffix="settings";o.folderName="RainlineMusic";o.osxLibrarySubFolder="Application Support";
+    preferences=std::make_unique<juce::PropertiesFile>(o);look.dark=preferences->getValue("phasePocket.ui.theme","dark")=="dark";
+    setLookAndFeel(&look);setOpaque(true);setResizable(true,true);setResizeLimits(900,672,1800,1344);getConstrainer()->setFixedAspectRatio(75./56.);
+    for(auto* component:std::initializer_list<juce::Component*>{&influence,&smoothing,&duration,&sustain,&sidechainRange,&midSide,&amplitude,&spectrum,&themeButton,&bypassButton,&resetFilter})addAndMakeVisible(component);
+    influenceAttach=std::make_unique<SliderAttachment>(p.parameters,"amount",influence);smoothingAttach=std::make_unique<SliderAttachment>(p.parameters,"release",smoothing);durationAttach=std::make_unique<SliderAttachment>(p.parameters,"duration",duration);sustainAttach=std::make_unique<SliderAttachment>(p.parameters,"sustain",sustain);
+    midSide.setSliderStyle(juce::Slider::LinearHorizontal);midSide.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);midSide.setDoubleClickReturnValue(true,0);
+    msAttach=std::make_unique<SliderAttachment>(p.parameters,"msBalance",midSide);
+    bypassButton.setClickingTogglesState(true);bypassAttach=std::make_unique<ButtonAttachment>(p.parameters,"bypass",bypassButton);
+    amplitude.onClick=[this]{setMode(1);};spectrum.onClick=[this]{setMode(0);};themeButton.onClick=[this]{setThemeForPreview(!look.dark);preferences->setValue("phasePocket.ui.theme",look.dark?"dark":"light");preferences->saveIfNeeded();};
+    sidechainRange.setSliderStyle(juce::Slider::TwoValueHorizontal);sidechainRange.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);sidechainRange.setRange(20,20000,1);sidechainRange.setSkewFactorFromMidPoint(std::sqrt(20.*20000.));
+    lowAttach=std::make_unique<juce::ParameterAttachment>(*p.parameters.getParameter("scLow"),[this](float){syncRange();});
+    highAttach=std::make_unique<juce::ParameterAttachment>(*p.parameters.getParameter("scHigh"),[this](float){syncRange();});lowAttach->sendInitialUpdate();highAttach->sendInitialUpdate();
+    sidechainRange.onDragStart=[this]{rangeGesture=true;lowAttach->beginGesture();highAttach->beginGesture();};
+    sidechainRange.onValueChange=[this]{float lo=float(sidechainRange.getMinValue()),hi=float(sidechainRange.getMaxValue());if(rangeGesture){lowAttach->setValueAsPartOfGesture(lo);highAttach->setValueAsPartOfGesture(hi);}else{lowAttach->setValueAsCompleteGesture(lo);highAttach->setValueAsCompleteGesture(hi);}};
+    sidechainRange.onDragEnd=[this]{lowAttach->endGesture();highAttach->endGesture();rangeGesture=false;syncRange();};
+    resetFilter.onClick=[this]{lowAttach->setValueAsCompleteGesture(20);highAttach->setValueAsCompleteGesture(20000);};
+    influence.setTooltip("Processing depth");duration.setTooltip("Full-depth duration: 1 ms to infinity. Then a smooth transition to Sustain.");sustain.setTooltip("Sidechain level retained after the smooth decay");midSide.setTooltip("Left: Mid only. Centre: Mid and Side. Right: Side only.");sidechainRange.setTooltip("Sidechain detector low and high cutoff");bypassButton.setTooltip("Bypass processing");themeButton.setTooltip(look.dark?"Switch to light theme":"Switch to dark theme");
+    int width=p.editorWidth.load();if(width<900||width>1800)width=1200;setSize(width,juce::roundToInt(width*56./75.));
+    PocketTrace discard;while(p.popTrace(discard)){}p.editorOpen.store(true);timerCallback();startTimerHz(60);
+}
+PhasePocketAudioProcessorEditor::~PhasePocketAudioProcessorEditor(){stopTimer();audioProcessor.editorOpen.store(false);if(rangeGesture){lowAttach->endGesture();highAttach->endGesture();}setLookAndFeel(nullptr);}
+void PhasePocketAudioProcessorEditor::setThemeForPreview(bool dark){look.dark=dark;themeButton.setTooltip(dark?"Switch to light theme":"Switch to dark theme");repaint();for(auto* c:getChildren())c->repaint();}
+void PhasePocketAudioProcessorEditor::setMode(float v){auto* p=audioProcessor.parameters.getParameter("mode");p->beginChangeGesture();p->setValueNotifyingHost(v);p->endChangeGesture();amplitude.setToggleState(v>.5f,juce::dontSendNotification);spectrum.setToggleState(v<.5f,juce::dontSendNotification);repaint();}
+void PhasePocketAudioProcessorEditor::syncRange(){if(rangeGesture)return;float a=audioProcessor.parameters.getRawParameterValue("scLow")->load(),b=audioProcessor.parameters.getRawParameterValue("scHigh")->load();sidechainRange.setMinAndMaxValues(juce::jmin(a,b),juce::jmax(a,b),juce::dontSendNotification);repaint();}
+juce::Rectangle<int> PhasePocketAudioProcessorEditor::scaled(float x,float y,float w,float h) const {float s=float(getWidth())/1200;return{juce::roundToInt(x*s),juce::roundToInt(y*s),juce::roundToInt(w*s),juce::roundToInt(h*s)};}
+void PhasePocketAudioProcessorEditor::resized(){amplitude.setBounds(scaled(810,33,126,44));spectrum.setBounds(scaled(936,33,126,44));themeButton.setBounds(scaled(1080,33,44,44));bypassButton.setBounds(scaled(1130,33,44,44));influence.setBounds(scaled(797,131,185,245));smoothing.setBounds(scaled(988,131,185,245));duration.setBounds(scaled(797,391,185,245));sustain.setBounds(scaled(988,391,185,245));sidechainRange.setBounds(scaled(68,744,1060,42));midSide.setBounds(scaled(116,807,220,32));resetFilter.setBounds(scaled(1040,696,105,33));audioProcessor.editorWidth.store(getWidth());}
+void PhasePocketAudioProcessorEditor::drawPanel(juce::Graphics& g,juce::Rectangle<float> r){for(int i=5;i>0;--i){g.setColour(juce::Colours::black.withAlpha(look.dark?.055f:.015f));g.fillRoundedRectangle(r.expanded(float(i)).translated(0,float(i)*2),18+float(i));}g.setGradientFill(juce::ColourGradient(juce::Colour(look.dark?0xff182538:0xfffafafa),r.getX(),r.getY(),juce::Colour(look.dark?0xff060c14:0xffe8e8e9),r.getRight(),r.getBottom(),false));g.fillRoundedRectangle(r,18);g.setColour(juce::Colour(look.dark?0xff304259:0xffbfc0c2));g.drawRoundedRectangle(r,18,1);}
+void PhasePocketAudioProcessorEditor::drawGraph(juce::Graphics& g,bool spectral){
+    const juce::Rectangle<float> r(100,185,640,190);auto grid=juce::Colour(look.dark?0xff213249:0xff393b3d);g.setColour(juce::Colour(look.dark?0xff040a12:0xff1b1c1e));g.fillRoundedRectangle(r,8);
+    text(g,spectral?"Spectral reduction":"Gain history",{50,140,380,32},22,look.ink());
+    auto y=[&](float gain){return r.getBottom()-r.getHeight()*(spectral?std::pow(juce::jlimit(0.f,1.f,gain),.25f):juce::jlimit(0.f,1.f,gain));};
+    if(spectral){for(float db:{0.f,-6.f,-12.f,-24.f,-48.f}){float yy=y(std::pow(10.f,db/20));g.setColour(grid);g.drawLine(r.getX(),yy,r.getRight(),yy);text(g,db==0?juce::String("0 dB"):juce::String(int(db)),{46,yy-10,50,20},13,look.muted());}for(float f:{20.f,100.f,1000.f,10000.f,20000.f}){float x=r.getX()+r.getWidth()*std::log(f/20)/std::log(1000.f);g.setColour(grid);g.drawLine(x,r.getY(),x,r.getBottom());text(g,f>=1000?juce::String(int(f/1000))+"k":juce::String(int(f)),{x-24,380,48,20},13,look.muted(),juce::Justification::centred);}text(g,"M    S",{665,142,80,28},14,look.muted(),juce::Justification::centredRight);}
+    else{for(int i=0;i<=4;++i){g.setColour(grid);float yy=r.getY()+float(i)*r.getHeight()/4;g.drawLine(r.getX(),yy,r.getRight(),yy);float x=r.getX()+float(i)*r.getWidth()/4;g.drawLine(x,r.getY(),x,r.getBottom());}text(g,"100%",{45,175,52,20},13,look.muted());text(g,"0%",{55,362,42,20},13,look.muted());text(g,"-500 ms",{100,380,100,20},13,look.muted());text(g,"Now",{675,380,65,20},13,look.muted(),juce::Justification::centredRight);}
+    juce::Graphics::ScopedSaveState clip(g);g.reduceClipRegion(r.toNearestInt());
+    if(spectral){for(int c=0;c<2;++c){auto& values=c?spectrumCurve.side:spectrumCurve.mid;juce::Path p;for(size_t i=0;i<values.size();++i){float x=r.getX()+r.getWidth()*float(i)/31,yy=y(std::isfinite(values[i])?values[i]:1);if(i==0)p.startNewSubPath(x,yy);else p.lineTo(x,yy);}auto colour=look.dark?juce::Colour(c?0xff33c9d2:0xff8298ff):juce::Colour(c?0xff8d9299:0xffe8e9ec);auto fill=p;fill.lineTo(r.getRight(),r.getY());fill.lineTo(r.getX(),r.getY());fill.closeSubPath();g.setColour(colour.withAlpha(.07f));g.fillPath(fill);stroke(g,p,colour,1.5f);}}
+    else if(filled){double now=history[size_t((cursor+4095)%4096)].time;juce::Path p;bool started=false;for(int i=0;i<filled;++i){auto& v=history[size_t((cursor-filled+i+4096)%4096)];double age=now-v.time;if(age<0||age>.5||!std::isfinite(v.gain))continue;float x=r.getRight()-float(age*2)*r.getWidth(),yy=y(v.gain);if(!started){p.startNewSubPath(x,yy);started=true;}else p.lineTo(x,yy);}stroke(g,p,juce::Colour(0xffe4e7ef),1.7f);}
+}
+void PhasePocketAudioProcessorEditor::drawScope(juce::Graphics& g){
+    const juce::Rectangle<float> r(50,452,690,166);text(g,"Oscilloscope",{50,410,340,30},22,look.ink());text(g,"OUT       KEY",{578,414,162,22},12,look.muted(),juce::Justification::centredRight);g.setColour(juce::Colour(look.dark?0xff040a12:0xff1b1c1e));g.fillRoundedRectangle(r,8);g.setColour(juce::Colour(look.dark?0xff253951:0xff414246));g.drawLine(r.getX(),r.getCentreY(),r.getRight(),r.getCentreY());text(g,"-1 s",{50,626,70,20},13,look.muted());text(g,"Now",{670,626,70,20},13,look.muted(),juce::Justification::centredRight);if(!filled)return;
+    juce::Graphics::ScopedSaveState clip(g);g.reduceClipRegion(r.toNearestInt());double now=history[size_t((cursor+4095)%4096)].time;
+    // Aggregate min/max once per display column, not multiple glowing overlapping strokes.
+    for(int kind=0;kind<2;++kind){std::array<float,690> low{},high{};std::array<bool,690> seen{};
+        for(int i=0;i<filled;++i){auto& v=history[size_t((cursor-filled+i+4096)%4096)];double age=now-v.time;if(age<0||age>1)continue;int x=juce::jlimit(0,689,int((1-age)*689));float lo=kind?v.keyLo:v.outLo,hi=kind?v.keyHi:v.outHi;if(!std::isfinite(lo)||!std::isfinite(hi))continue;if(!seen[size_t(x)]){low[size_t(x)]=lo;high[size_t(x)]=hi;seen[size_t(x)]=true;}else{low[size_t(x)]=juce::jmin(low[size_t(x)],lo);high[size_t(x)]=juce::jmax(high[size_t(x)],hi);}}
+        g.setColour(kind?juce::Colour(0xffe3e7ee).withAlpha(.8f):juce::Colour(look.dark?0xff3794d4:0xffadb3bc).withAlpha(.5f));for(size_t x=0;x<690;++x)if(seen[x]){float top=r.getCentreY()-juce::jlimit(-1.f,1.f,high[x])*80,bottom=r.getCentreY()-juce::jlimit(-1.f,1.f,low[x])*80;g.drawLine(r.getX()+float(x),top,r.getX()+float(x),juce::jmax(top+.5f,bottom),1.f);}
     }
-    const float angle = start + (end - start) * proportion;
-    const auto thumb = juce::Point<float>(centre.x + (radius + 8.0f * scale) * std::cos(angle),
-                                          centre.y + (radius + 8.0f * scale) * std::sin(angle));
-    g.setColour(accent.withAlpha(0.2f)); g.fillEllipse(thumb.x - 12.0f * scale, thumb.y - 12.0f * scale, 24.0f * scale, 24.0f * scale);
-    g.setColour(juce::Colour(0xffeef5ff)); g.fillEllipse(thumb.x - 5.5f * scale, thumb.y - 5.5f * scale, 11.0f * scale, 11.0f * scale);
-    g.setColour(accent.brighter(0.35f)); g.drawEllipse(thumb.x - 5.5f * scale, thumb.y - 5.5f * scale, 11.0f * scale, 11.0f * scale, 1.4f * scale);
-    drawLabel(g, title, { centre.x - radius, centre.y - radius * 0.55f, 2.0f * radius, 24.0f * scale }, 16.0f * scale, primaryText(), juce::Justification::centred);
-    drawLabel(g, subtitle, { centre.x - radius, centre.y - radius * 0.25f, 2.0f * radius, 20.0f * scale }, 12.0f * scale, secondaryText(), juce::Justification::centred);
-    const bool showsInfinity = infinityAtMaximum && proportion > 0.9995f;
-    const juce::String value = showsInfinity ? juce::String::fromUTF8("∞") : juce::String(getValue(), getInterval() < 1.0 ? 1 : 0);
-    drawLabel(g, value, { centre.x - radius, centre.y - 3.0f * scale, 2.0f * radius, 47.0f * scale }, 34.0f * scale, primaryText(), juce::Justification::centred);
-    if (!showsInfinity) drawLabel(g, unit, { centre.x - radius, centre.y + 39.0f * scale, 2.0f * radius, 18.0f * scale }, 12.0f * scale, secondaryText(), juce::Justification::centred);
 }
-
-void RangeLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
-                                        float, float minSliderPos, float maxSliderPos,
-                                        juce::Slider::SliderStyle style, juce::Slider&)
-{
-    if (style != juce::Slider::TwoValueHorizontal) return;
-    const float centreY = static_cast<float>(y) + static_cast<float>(height) * 0.5f;
-    const auto fullTrack = juce::Rectangle<float>(static_cast<float>(x), centreY - 3.5f, static_cast<float>(width), 7.0f);
-    g.setColour(juce::Colours::black.withAlpha(0.55f)); g.fillRoundedRectangle(fullTrack.translated(0.0f, 4.0f), 4.0f);
-    g.setColour(juce::Colour(0xff172438)); g.fillRoundedRectangle(fullTrack, 4.0f);
-    const auto selected = juce::Rectangle<float>(minSliderPos, centreY - 3.5f, juce::jmax(1.0f, maxSliderPos - minSliderPos), 7.0f);
-    g.setColour(juce::Colour(0xff2c8fff).withAlpha(0.18f)); g.fillRoundedRectangle(selected.expanded(3.0f), 6.0f);
-    juce::ColourGradient band(juce::Colour(0xff387bff), minSliderPos, centreY, juce::Colour(0xff3ce5df), maxSliderPos, centreY, false);
-    band.addColour(0.5, juce::Colour(0xff50b7ff)); g.setGradientFill(band); g.fillRoundedRectangle(selected, 4.0f);
-    for (const float thumbX : { minSliderPos, maxSliderPos })
-    {
-        g.setColour(juce::Colour(0xff4aaeff).withAlpha(0.18f)); g.fillEllipse(thumbX - 13.0f, centreY - 13.0f, 26.0f, 26.0f);
-        g.setColour(juce::Colour(0xffedf5ff)); g.fillEllipse(thumbX - 7.0f, centreY - 7.0f, 14.0f, 14.0f);
-        g.setColour(juce::Colour(0xff628dff)); g.drawEllipse(thumbX - 7.0f, centreY - 7.0f, 14.0f, 14.0f, 2.0f);
-    }
+void PhasePocketAudioProcessorEditor::paint(juce::Graphics& g){
+    g.fillAll(juce::Colour(look.dark?0xff060b12:0xffececeb));juce::Graphics::ScopedSaveState save(g);g.addTransform(juce::AffineTransform::scale(float(getWidth())/1200));
+    if(look.dark){g.setGradientFill(juce::ColourGradient(juce::Colour(0xff1d2b3e),560,0,juce::Colour(0xff04080e),560,850,true));g.fillRect(0,0,1200,896);for(int i=0;i<10;++i){juce::Path p;p.startNewSubPath(370+float(i)*22,-10);p.cubicTo(470+float(i)*19,80,430+float(i)*27,135,650+float(i)*30,170);stroke(g,p,juce::Colour(0xff52617e).withAlpha(.15f),.8f);}}
+    text(g,"PHASE POCKET",{40,30,550,48},32,look.ink());g.setColour(juce::Colour(look.dark?0xff263347:0xffc5c6c8));g.drawLine(30,104,1170,104);
+    drawPanel(g,{25,120,750,540});drawPanel(g,{790,120,385,540});drawPanel(g,{25,680,1150,185});
+    drawGraph(g,audioProcessor.parameters.getRawParameterValue("mode")->load()<.5f);drawScope(g);
+    text(g,"Sidechain filter",{50,698,190,28},19,look.ink());text(g,hz(sidechainRange.getMinValue()),{290,698,135,28},17,look.ink());text(g,hz(sidechainRange.getMaxValue()),{455,698,150,28},17,look.ink());
+    text(g,"20",{66,786,50,18},12,look.muted());text(g,"20k",{1070,786,62,18},12,look.muted(),juce::Justification::centredRight);text(g,"M/S",{50,810,55,26},15,look.muted());
 }
-
-PhasePocketAudioProcessorEditor::PhasePocketAudioProcessorEditor(PhasePocketAudioProcessor& p)
-    : AudioProcessorEditor(&p), audioProcessor(p)
-{
-    setOpaque(true); setResizable(true, true); setResizeLimits(900, 672, 1800, 1344);
-    getConstrainer()->setFixedAspectRatio(75.0 / 56.0);
-    const std::array<juce::Component*, 10> components { &influence, &smoothing, &duration, &sustain, &sidechainRange, &midSide, &amplitude, &spectrum, &themeButton, &bypassButton };
-    for (auto* component : components) addAndMakeVisible(component);
-    sidechainRange.setSliderStyle(juce::Slider::TwoValueHorizontal);
-    sidechainRange.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    sidechainRange.setRange(20.0, 20000.0, 1.0); sidechainRange.setSkewFactorFromMidPoint(1000.0);
-    sidechainRange.setLookAndFeel(&rangeLookAndFeel);
-    sidechainRange.setMinAndMaxValues(audioProcessor.parameters.getRawParameterValue("scLow")->load(), audioProcessor.parameters.getRawParameterValue("scHigh")->load(), juce::dontSendNotification);
-    sidechainRange.onDragStart = [this] { audioProcessor.parameters.getParameter("scLow")->beginChangeGesture(); audioProcessor.parameters.getParameter("scHigh")->beginChangeGesture(); };
-    sidechainRange.onValueChange = [this] { setSidechainRangeParameter("scLow", static_cast<float>(sidechainRange.getMinValue())); setSidechainRangeParameter("scHigh", static_cast<float>(sidechainRange.getMaxValue())); };
-    sidechainRange.onDragEnd = [this] { audioProcessor.parameters.getParameter("scLow")->endChangeGesture(); audioProcessor.parameters.getParameter("scHigh")->endChangeGesture(); };
-    midSide.setSliderStyle(juce::Slider::LinearHorizontal); midSide.setTextBoxStyle(juce::Slider::TextBoxRight, false, 72, 26);
-    midSide.setColour(juce::Slider::trackColourId, juce::Colour(0xff5978ec)); midSide.setColour(juce::Slider::backgroundColourId, juce::Colour(0xff172235));
-    midSide.setColour(juce::Slider::thumbColourId, juce::Colour(0xffdce8ff)); midSide.setColour(juce::Slider::textBoxTextColourId, primaryText());
-    midSide.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff0b1420)); midSide.setColour(juce::Slider::textBoxOutlineColourId, juce::Colour(0xff263449));
-    influenceAttach = std::make_unique<SliderAttachment>(p.parameters, "amount", influence);
-    smoothingAttach = std::make_unique<SliderAttachment>(p.parameters, "release", smoothing);
-    durationAttach = std::make_unique<SliderAttachment>(p.parameters, "duration", duration);
-    sustainAttach = std::make_unique<SliderAttachment>(p.parameters, "sustain", sustain);
-    msAttach = std::make_unique<SliderAttachment>(p.parameters, "msBalance", midSide);
-    bypassAttach = std::make_unique<ButtonAttachment>(p.parameters, "bypass", bypassButton);
-    amplitude.onClick = [this] { setMode(1.0f); }; spectrum.onClick = [this] { setMode(0.0f); }; bypassButton.setClickingTogglesState(true);
-    const std::array<juce::TextButton*, 4> buttons { &amplitude, &spectrum, &themeButton, &bypassButton };
-    for (auto* button : buttons) { button->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff0d1724)); button->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff405fd0)); button->setColour(juce::TextButton::textColourOffId, secondaryText()); button->setColour(juce::TextButton::textColourOnId, primaryText()); }
-    influence.setTooltip("Processing depth"); smoothing.setTooltip("Movement inside an active event; it does not extend the event tail");
-    duration.setTooltip("Maximum full sidechain duration. Maximum means infinity"); sustain.setTooltip("Amount of sidechain retained after Duration"); sidechainRange.setTooltip("Sidechain detector frequency range");
-    int initial = audioProcessor.editorWidth.load(); if (initial < 900 || initial > 1800) initial = 1200;
-    setSize(initial, juce::roundToInt(static_cast<double>(initial) * 56.0 / 75.0));
-    audioProcessor.editorWidth.store(initial); audioProcessor.editorOpen.store(true); startTimerHz(30);
-}
-
-PhasePocketAudioProcessorEditor::~PhasePocketAudioProcessorEditor() { stopTimer(); sidechainRange.setLookAndFeel(nullptr); audioProcessor.editorOpen.store(false); }
-void PhasePocketAudioProcessorEditor::setMode(float value) { auto* parameter = audioProcessor.parameters.getParameter("mode"); parameter->beginChangeGesture(); parameter->setValueNotifyingHost(value); parameter->endChangeGesture(); }
-void PhasePocketAudioProcessorEditor::setSidechainRangeParameter(const char* id, float value) { auto* parameter = audioProcessor.parameters.getParameter(id); const float normalised = parameter->convertTo0to1(value); if (std::abs(parameter->getValue() - normalised) > 1.0e-6f) parameter->setValueNotifyingHost(normalised); }
-juce::Rectangle<int> PhasePocketAudioProcessorEditor::scaled(float x, float y, float w, float h) const { const float scale = static_cast<float>(getWidth()) / 1200.0f; return { juce::roundToInt(x * scale), juce::roundToInt(y * scale), juce::roundToInt(w * scale), juce::roundToInt(h * scale) }; }
-void PhasePocketAudioProcessorEditor::resized() { amplitude.setBounds(scaled(820,34,125,44)); spectrum.setBounds(scaled(945,34,125,44)); themeButton.setBounds(scaled(1080,34,45,44)); bypassButton.setBounds(scaled(1132,34,45,44)); influence.setBounds(scaled(800,130,185,245)); smoothing.setBounds(scaled(990,130,185,245)); duration.setBounds(scaled(800,390,185,245)); sustain.setBounds(scaled(990,390,185,245)); sidechainRange.setBounds(scaled(80,738,1040,54)); midSide.setBounds(scaled(145,808,300,34)); audioProcessor.editorWidth.store(getWidth()); }
-
-void PhasePocketAudioProcessorEditor::drawPanel(juce::Graphics& g, juce::Rectangle<float> area, float radius)
-{
-    for (int layer = 4; layer >= 1; --layer) { g.setColour(juce::Colours::black.withAlpha(0.055f * static_cast<float>(5 - layer))); g.fillRoundedRectangle(area.translated(0.0f, static_cast<float>(layer) * 3.0f).expanded(static_cast<float>(layer)), radius + static_cast<float>(layer)); }
-    juce::ColourGradient gradient(juce::Colour(0xff162438), area.getX(), area.getY(), juce::Colour(0xff070d16), area.getRight(), area.getBottom(), false);
-    gradient.addColour(0.32, juce::Colour(0xff101c2b)); gradient.addColour(0.72, juce::Colour(0xff09131f)); g.setGradientFill(gradient); g.fillRoundedRectangle(area, radius);
-    g.setColour(juce::Colour(0xff2d4058)); g.drawRoundedRectangle(area, radius, 1.1f); g.setColour(juce::Colours::white.withAlpha(0.055f)); g.drawRoundedRectangle(area.reduced(1.2f), radius - 1.2f, 1.0f);
-}
-
-void PhasePocketAudioProcessorEditor::drawSpectrum(juce::Graphics& g, juce::Rectangle<float> area)
-{
-    g.setColour(juce::Colour(0xff03070d)); g.fillRoundedRectangle(area, 9.0f);
-    for (int i=0;i<=4;++i) { g.setColour(juce::Colour(0xff243246).withAlpha(0.65f)); g.drawHorizontalLine(juce::roundToInt(area.getY()+static_cast<float>(i)*area.getHeight()/4.0f),area.getX(),area.getRight()); g.drawVerticalLine(juce::roundToInt(area.getX()+static_cast<float>(i)*area.getWidth()/4.0f),area.getY(),area.getBottom()); }
-    const auto gainToY=[&area](float gain){return area.getY()+area.getHeight()*(1.0f-std::pow(juce::jlimit(0.0f,1.0f,gain),0.25f));};
-    for(int channel=1;channel>=0;--channel){const auto& values=channel!=0?spectrumCurve.side:spectrumCurve.mid;juce::Path path,fill;for(std::size_t i=0;i<values.size();++i){const float x=area.getX()+area.getWidth()*static_cast<float>(i)/static_cast<float>(values.size()-1);const float y=gainToY(values[i]);if(i==0){path.startNewSubPath(x,y);fill.startNewSubPath(x,area.getBottom());fill.lineTo(x,y);}else{path.lineTo(x,y);fill.lineTo(x,y);}}fill.lineTo(area.getRight(),area.getBottom());fill.closeSubPath();const auto colour=channel!=0?juce::Colour(0xff25d8d0):juce::Colour(0xff6384ff);g.setGradientFill(juce::ColourGradient(colour.withAlpha(0.30f),0.0f,area.getY(),colour.withAlpha(0.0f),0.0f,area.getBottom(),false));g.fillPath(fill);g.setColour(colour.withAlpha(0.16f));g.strokePath(path,juce::PathStrokeType(6.0f));g.setColour(colour);g.strokePath(path,juce::PathStrokeType(1.7f));}
-}
-
-void PhasePocketAudioProcessorEditor::drawScope(juce::Graphics& g, juce::Rectangle<float> area)
-{
-    g.setColour(juce::Colour(0xff03070d)); g.fillRoundedRectangle(area,9.0f); g.setColour(juce::Colour(0xff26364c)); g.drawHorizontalLine(juce::roundToInt(area.getCentreY()),area.getX(),area.getRight()); if(filled==0)return;
-    const double now=history[static_cast<std::size_t>((cursor+4095)%4096)].time;
-    for(int kind=0;kind<2;++kind){const auto colour=kind!=0?juce::Colour(0xffdbe5ff):juce::Colour(0xff2383d9);if(kind==0){g.setColour(colour.withAlpha(0.18f));for(int i=0;i<filled;++i){const auto& value=history[static_cast<std::size_t>((cursor-filled+i+4096)%4096)];const double age=now-value.time;if(age<0.0||age>1.0)continue;const float x=area.getRight()-static_cast<float>(age)*area.getWidth();g.drawLine(x,area.getCentreY()-value.outHi*area.getHeight()*0.48f,x,area.getCentreY()-value.outLo*area.getHeight()*0.48f,3.0f);}}g.setColour(colour.withAlpha(kind!=0?0.95f:0.78f));for(int i=0;i<filled;++i){const auto& value=history[static_cast<std::size_t>((cursor-filled+i+4096)%4096)];const double age=now-value.time;if(age<0.0||age>1.0)continue;const float x=area.getRight()-static_cast<float>(age)*area.getWidth();const float low=kind!=0?value.keyLo:value.outLo;const float high=kind!=0?value.keyHi:value.outHi;g.drawLine(x,area.getCentreY()-juce::jlimit(-1.0f,1.0f,high)*area.getHeight()*0.48f,x,area.getCentreY()-juce::jlimit(-1.0f,1.0f,low)*area.getHeight()*0.48f,kind!=0?1.2f:0.8f);}}
-}
-
-void PhasePocketAudioProcessorEditor::paint(juce::Graphics& g)
-{
-    g.fillAll(background()); const float scale=static_cast<float>(getWidth())/1200.0f; juce::Graphics::ScopedSaveState save(g); g.addTransform(juce::AffineTransform::scale(scale));
-    juce::ColourGradient vertical(juce::Colour(0xff121f32),600.0f,0.0f,juce::Colour(0xff03070d),600.0f,896.0f,false);vertical.addColour(0.28,juce::Colour(0xff08111d));vertical.addColour(0.68,juce::Colour(0xff050a12));g.setGradientFill(vertical);g.fillRect(0.0f,0.0f,1200.0f,896.0f);
-    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff28446c).withAlpha(0.26f),560.0f,20.0f,juce::Colours::transparentBlack,560.0f,470.0f,true));g.fillEllipse(180.0f,-270.0f,820.0f,650.0f);
-    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff133a4a).withAlpha(0.12f),1080.0f,380.0f,juce::Colours::transparentBlack,1080.0f,780.0f,true));g.fillEllipse(730.0f,80.0f,700.0f,700.0f);
-    g.setColour(juce::Colours::black.withAlpha(0.18f));g.fillRect(0.0f,100.0f,1200.0f,40.0f);g.fillRect(0.0f,645.0f,1200.0f,791.0f-727.0f);
-    for(int i=0;i<10;++i){juce::Path contour;contour.startNewSubPath(330.0f+static_cast<float>(i)*20.0f,-5.0f);contour.cubicTo(440.0f+static_cast<float>(i)*20.0f,60.0f,430.0f+static_cast<float>(i)*29.0f,125.0f,620.0f+static_cast<float>(i)*34.0f,168.0f);g.setColour(juce::Colour(0xff496487).withAlpha(0.12f+static_cast<float>(i%3)*0.025f));g.strokePath(contour,juce::PathStrokeType(1.0f));}
-    drawLabel(g,"Phase Pocket",{115.0f,24.0f,360.0f,48.0f},38.0f,primaryText());drawLabel(g,"R  A  I  N  L  I  N  E",{118.0f,72.0f,300.0f,20.0f},13.0f,secondaryText());
-    for(int i=0;i<5;++i){const float x=42.0f+static_cast<float>(i)*11.0f;const float barHeight=20.0f+static_cast<float>(2-std::abs(2-i))*13.0f;g.setColour(juce::Colour(0xff4f7cff).withAlpha(0.18f));g.fillRoundedRectangle(x-5.0f,45.0f-barHeight*0.5f-5.0f,15.0f,barHeight+10.0f,7.5f);juce::ColourGradient bar(juce::Colour(0xff756dff),x,25.0f,juce::Colour(0xff27d8dc),x,76.0f,false);g.setGradientFill(bar);g.fillRoundedRectangle(x,45.0f-barHeight*0.5f,5.0f,barHeight,2.5f);}
-    drawPanel(g,{25.0f,120.0f,750.0f,540.0f});drawPanel(g,{790.0f,120.0f,385.0f,540.0f});drawPanel(g,{25.0f,680.0f,1150.0f,185.0f});
-    drawLabel(g,"Spectral reduction",{50.0f,142.0f,350.0f,30.0f},22.0f,primaryText());drawLabel(g,"M",{690.0f,143.0f,25.0f,28.0f},16.0f,juce::Colour(0xff6384ff),juce::Justification::centred);drawLabel(g,"S",{720.0f,143.0f,25.0f,28.0f},16.0f,juce::Colour(0xff25d8d0),juce::Justification::centred);
-    drawSpectrum(g,{100.0f,185.0f,640.0f,190.0f});drawLabel(g,"0 dB",{47.0f,178.0f,52.0f,22.0f},14.0f,secondaryText());drawLabel(g,"-inf",{55.0f,352.0f,40.0f,22.0f},14.0f,secondaryText());drawLabel(g,"20",{92.0f,380.0f,45.0f,20.0f},13.0f,secondaryText());drawLabel(g,"20k",{705.0f,380.0f,40.0f,20.0f},13.0f,secondaryText(),juce::Justification::centredRight);
-    drawLabel(g,"Oscilloscope",{50.0f,408.0f,350.0f,30.0f},22.0f,primaryText());drawScope(g,{50.0f,450.0f,690.0f,170.0f});drawLabel(g,"-1 s",{50.0f,625.0f,50.0f,20.0f},13.0f,secondaryText());drawLabel(g,"Now",{690.0f,625.0f,50.0f,20.0f},13.0f,secondaryText(),juce::Justification::centredRight);
-    drawLabel(g,"Sidechain filter",{50.0f,696.0f,190.0f,28.0f},19.0f,primaryText());drawLabel(g,"Detector frequency range",{50.0f,720.0f,220.0f,22.0f},12.0f,secondaryText());
-    const auto formatFrequency=[](double value){return value>=1000.0?juce::String(value/1000.0,1)+" kHz":juce::String(juce::roundToInt(value))+" Hz";};
-    drawLabel(g,formatFrequency(sidechainRange.getMinValue()),{78.0f,718.0f,120.0f,24.0f},13.0f,juce::Colour(0xff6e93ff));drawLabel(g,formatFrequency(sidechainRange.getMaxValue()),{1000.0f,718.0f,120.0f,24.0f},13.0f,juce::Colour(0xff45ddd7),juce::Justification::centredRight);
-    drawLabel(g,"M / S focus",{50.0f,808.0f,95.0f,28.0f},14.0f,secondaryText());drawLabel(g,"v0.6.0",{1085.0f,825.0f,65.0f,24.0f},14.0f,secondaryText(),juce::Justification::centredRight);
-    if(bypassLook){g.setColour(juce::Colours::black.withAlpha(0.42f));g.fillRect(0.0f,105.0f,1200.0f,791.0f);}
-}
-
-void PhasePocketAudioProcessorEditor::timerCallback()
-{
-    PocketTrace trace;while(audioProcessor.popTrace(trace)){if(!std::isfinite(trace.time))continue;history[static_cast<std::size_t>(cursor)]=trace;cursor=(cursor+1)%4096;filled=juce::jmin(filled+1,4096);}SpectrumTrace curve;while(audioProcessor.popSpectrum(curve))spectrumCurve=curve;
-    if(!sidechainRange.isMouseButtonDown()){const float low=audioProcessor.parameters.getRawParameterValue("scLow")->load();const float high=audioProcessor.parameters.getRawParameterValue("scHigh")->load();if(std::abs(static_cast<float>(sidechainRange.getMinValue())-low)>0.5f||std::abs(static_cast<float>(sidechainRange.getMaxValue())-high)>0.5f)sidechainRange.setMinAndMaxValues(low,high,juce::dontSendNotification);}
-    const bool amplitudeMode=audioProcessor.parameters.getRawParameterValue("mode")->load()>0.5f;amplitude.setToggleState(amplitudeMode,juce::dontSendNotification);spectrum.setToggleState(!amplitudeMode,juce::dontSendNotification);bypassLook=audioProcessor.parameters.getRawParameterValue("bypass")->load()>0.5f||audioProcessor.displayBypass.load();repaint();
-}
+void PhasePocketAudioProcessorEditor::timerCallback(){PocketTrace v;while(audioProcessor.popTrace(v)){if(!std::isfinite(v.time))continue;if(filled&&v.time<=history[size_t((cursor+4095)%4096)].time)filled=0;history[size_t(cursor)]=v;cursor=(cursor+1)%4096;filled=juce::jmin(filled+1,4096);}SpectrumTrace c;while(audioProcessor.popSpectrum(c))spectrumCurve=c;bool amp=audioProcessor.parameters.getRawParameterValue("mode")->load()>.5f;amplitude.setToggleState(amp,juce::dontSendNotification);spectrum.setToggleState(!amp,juce::dontSendNotification);repaint();}

@@ -2,59 +2,60 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 
-class ModernDial final : public juce::Slider
-{
+class PocketLook final : public juce::LookAndFeel_V4 {
 public:
-    ModernDial(juce::String title, juce::String subtitle, juce::String unit,
-               juce::Colour accent, bool infinityAtMaximum = false);
-    void paint(juce::Graphics&) override;
-private:
-    juce::String title, subtitle, unit;
-    juce::Colour accent;
-    bool infinityAtMaximum = false;
-};
-
-class RangeLookAndFeel final : public juce::LookAndFeel_V4
-{
-public:
-    void drawLinearSlider(juce::Graphics&, int x, int y, int width, int height,
-                          float sliderPos, float minSliderPos, float maxSliderPos,
+    bool dark = true;
+    juce::Colour ink() const;
+    juce::Colour muted() const;
+    juce::Font getTextButtonFont(juce::TextButton&, int) override;
+    void drawButtonBackground(juce::Graphics&, juce::Button&, const juce::Colour&, bool, bool) override;
+    void drawButtonText(juce::Graphics&, juce::TextButton&, bool, bool) override;
+    void drawLinearSlider(juce::Graphics&, int, int, int, int, float, float, float,
                           juce::Slider::SliderStyle, juce::Slider&) override;
 };
-
-class PhasePocketAudioProcessorEditor final : public juce::AudioProcessorEditor,
-                                               private juce::Timer
-{
+class ModernDial final : public juce::Slider {
+public:
+    ModernDial(PocketLook&, juce::String, juce::String, juce::String, juce::Colour, bool = false);
+    void paint(juce::Graphics&) override;
+private:
+    PocketLook& look;
+    juce::String title, subtitle, unit;
+    juce::Colour accent;
+    bool infinity;
+};
+class PhasePocketAudioProcessorEditor final : public juce::AudioProcessorEditor, private juce::Timer {
 public:
     explicit PhasePocketAudioProcessorEditor(PhasePocketAudioProcessor&);
     ~PhasePocketAudioProcessorEditor() override;
     void paint(juce::Graphics&) override;
     void resized() override;
+    void setThemeForPreview(bool);
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+    PhasePocketAudioProcessor& audioProcessor;
+    PocketLook look;
+    ModernDial influence {look,"Influence","Depth","%",juce::Colour(0xff5987ff)};
+    ModernDial smoothing {look,"Smoothing","Movement","ms",juce::Colour(0xff30d8ce)};
+    ModernDial duration {look,"Duration","Sidechain length","ms",juce::Colour(0xff8971ff),true};
+    ModernDial sustain {look,"Sustain","Tail amount","%",juce::Colour(0xff35bdef)};
+    juce::Slider sidechainRange, midSide;
+    juce::TextButton amplitude {"Amplitude"}, spectrum {"Spectrum"};
+    juce::TextButton themeButton {"theme"}, bypassButton {"power"}, resetFilter {"Reset"};
+    std::unique_ptr<SliderAttachment> influenceAttach, smoothingAttach, durationAttach, sustainAttach, msAttach;
+    std::unique_ptr<ButtonAttachment> bypassAttach;
+    std::unique_ptr<juce::ParameterAttachment> lowAttach, highAttach;
+    std::unique_ptr<juce::PropertiesFile> preferences;
+    std::array<PocketTrace,4096> history {};
+    SpectrumTrace spectrumCurve;
+    int cursor = 0, filled = 0;
+    bool rangeGesture = false;
     void timerCallback() override;
     void setMode(float);
-    void setSidechainRangeParameter(const char*, float);
-    void drawPanel(juce::Graphics&, juce::Rectangle<float>, float = 18.0f);
-    void drawSpectrum(juce::Graphics&, juce::Rectangle<float>);
-    void drawScope(juce::Graphics&, juce::Rectangle<float>);
-    juce::Rectangle<int> scaled(float, float, float, float) const;
-    PhasePocketAudioProcessor& audioProcessor;
-    ModernDial influence { "Influence", "Depth", "%", juce::Colour(0xff5b83ff) };
-    ModernDial smoothing { "Smoothing", "Movement", "ms", juce::Colour(0xff31ddd2) };
-    ModernDial duration { "Duration", "Sidechain length", "ms", juce::Colour(0xff7c72ff), true };
-    ModernDial sustain { "Sustain", "Tail amount", "%", juce::Colour(0xff38bdf8) };
-    RangeLookAndFeel rangeLookAndFeel;
-    juce::Slider sidechainRange, midSide;
-    juce::TextButton amplitude { "Amplitude" }, spectrum { "Spectrum" };
-    juce::TextButton themeButton { "Moon" }, bypassButton { "Power" };
-    std::unique_ptr<SliderAttachment> influenceAttach, smoothingAttach;
-    std::unique_ptr<SliderAttachment> durationAttach, sustainAttach, msAttach;
-    std::unique_ptr<ButtonAttachment> bypassAttach;
-    SpectrumTrace spectrumCurve;
-    std::array<PocketTrace, 4096> history {};
-    int cursor = 0, filled = 0;
-    bool bypassLook = false;
+    void syncRange();
+    void drawPanel(juce::Graphics&, juce::Rectangle<float>);
+    void drawGraph(juce::Graphics&, bool);
+    void drawScope(juce::Graphics&);
+    juce::Rectangle<int> scaled(float,float,float,float) const;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PhasePocketAudioProcessorEditor)
 };
