@@ -1,46 +1,37 @@
-# Phase Pocket 0.2
+# Phase Pocket 0.4
 
-Two-mode sidechain VST3 prototype. Insert on bass/main input; route kick into the external sidechain. Outputs processed bass only, not the kick.
+Experimental JUCE 8.0.4 sidechain VST3 by Rainline Music. Default: Amplitude, Influence 100%, Smoothing 40ms, Full Range sidechain. GUI order Amplitude / Spectrum; saved mode indices remain Spectrum=0, Amplitude=1 for automation compatibility.
 
-## Controls
+## Sound
+Influence 0–100% keeps the amplitude behavior from v0.3. From 100 to 150 it is exponentially boosted: 100%=1x, 125%=2.828x, 150%=8x. Amplitude gain is max(0,1-depth*envelope). No negative gain or polarity inversion. A quiet key is not auto-normalized; exact silence is not guaranteed at any key level. Smoothing is envelope recovery, not an output ceiling.
 
-- Spectrum / Amplitude buttons.
-- Influence 0–100%, default 100%: blends delayed dry with processed signal.
-- Smoothing 0–500ms, default 40ms: release time constant, not total fade duration. Larger values extend recovery; attack remains fast.
+Spectrum now uses 32 overlapping log-frequency energy bands, neighborhood averaging and a smooth dB curve, rather than the old phase-dependent per-bin quadratic budget. Base attenuation = 24*keyEnergy/(bassEnergy+keyEnergy+softFloor) dB, multiplied by effective depth and capped at 60dB. Smoothing controls band recovery. This follows the broad idea of sidechain-driven spectral EQ, not Trackspacer's proprietary implementation. It is not a summing/true-peak limiter and does not promise an unchanged perceived kick timbre.
 
-## Spectrum
+The key-only 12dB/oct HP/LP filter is unchanged; 20Hz/20kHz extremes bypass it. It does not directly filter the bass. Both modes remain stereo-linked with 2048 samples reported latency. Bypass is a host-integrated parameter appended after existing IDs, with a smoothed delayed-dry path.
 
-For each complex bin B (bass) and K (kick), T=max(abs(B),abs(K)). Solve abs(K+g*B)<=T for largest g in [0,1], including Re(B*conj(K)). No tolerance or attenuation floor. Stereo-linked gain uses the stricter channel. Fixed 20Hz–20kHz range, limited by Nyquist. 2048-point STFT with sqrt-Hann and 75% overlap. Zero-padded starting frames fix the v0.1 startup fade. Smoothing controls per-bin gain recovery.
+## UI
+Light/Dark use shared geometry. Moon/sun button precedes bypass. Theme persists in local phasePocket.ui.theme preferences, not an audio preset. Multiple open editors in a process share message-thread changes. No file access in audio callback.
 
-100% means full application of this formula, NOT erasing every frequency occupied by the kick. Destructive interference may require no ducking. This is neither complex subtraction B-K nor magnitude subtraction. Spectral budgets do NOT guarantee time-domain sample peaks or true peaks below 0 dBFS.
+One-second scope: muted blue input bass, bright white filtered key, no In/Key/Out text. Gain history remains 500ms and is an applied-gain estimate in Spectrum, not LUFS. Telemetry uses timed, signed min/max samples through a bounded SPSC FIFO. Drawing clips visual over-range without altering audio.
 
-## Amplitude
+Vertical rotary drag; Shift fine drag; double-click number to enter (comma/point accepted), double-click outside number resets default. Arrow/Home/End and focus-only mouse wheel supported. Filter handles are keyboard focusable, readouts accept Hz/kHz by double-click, Reset affects only filter. UI scales 900x672 to 1800x1344 with fixed aspect ratio; default 1200x896.
 
-Detector = clamp(max(abs(K_L),abs(K_R)),0,1). With no smoothing, wet=B*(1-detector). With smoothing, e[n]=max(detector[n], e[n-1]*exp(-1/(sampleRate*tau))). Output = dry + Influence*(wet-dry).
+## Build
+GitHub Actions builds macOS universal (arm64 + x86_64, macOS 11+) and Windows x64 VST3, runs DSP regression and pluginval strictness 5, then packages only successful validations. Artifacts: PhasePocket-v0.4-macOS-Universal-VST3 and PhasePocket-v0.4-Windows-x64-VST3. Ad-hoc macOS signing is not Apple notarization. Windows binary is unsigned.
 
-At 100% Influence, a 0dBFS key sample fully ducks the main input; a -6dBFS key peak gives approximately half gain. No auto-normalization. Zero smoothing is audio-rate amplitude modulation and may sound distorted; this behavior is inherent, not a limiter. Smoothing reduces rapid recovery fluctuations but can still change the timbre.
+Local CMake: cmake -S . -B build -DJUCE_DIR=/path/to/JUCE, then cmake --build build --config Release --target PhasePocket_VST3. Windows uses Visual Studio 2022 x64, macOS may add -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64".
 
-## Timing and display
+## Validation and limits
+Local DSP tests passed at 44.1/48/96/192kHz, including boosted depth, exact Full Range filter bypass, key rejection/passband, phase-polarity invariance, spectral band selectivity, latency and delayed bypass. Native JUCE processor/editor compiled on Linux and actual screenshots generated at all requested sizes and 2x. This is not Windows/macOS host QA. CI results must be checked in Actions; they were not available from the connected source during implementation.
 
-Both modes run continuously with 2048 samples of reported latency (42.67ms at 48kHz). Mode and Influence automation use a 5ms one-pole transition. Correct host PDC and routing are required for the external kick to align with bass. No processing limiter.
+Inter could not be downloaded in the offline local environment: temporary system Arial on macOS/Windows and Liberation Sans for Linux previews, explicitly permitted by the spec's fallback. No unlicensed font embedding. No new third-party dependency. Full screen-reader semantics for custom frequency handles and target-host interaction testing remain to be completed. Address/undefined sanitizer executable could not run locally because libasan.so.6 is missing.
 
-Top display: 500ms gain history; Spectrum is an energy-weighted spectral gain ESTIMATE, not a loudness measurement. Bottom display: aligned L/mono input, key, output min/max waveform columns, fixed +/-1 scale. Visual clipping does not clip the audio. All traces come from actual audio data. A bounded SPSC queue drops visualization frames rather than blocking audio if the editor is closed/slow.
+Existing parameter IDs, order, ranges and stored values remain; mode default changes only for fresh instances. Existing Spectrum and >100% presets intentionally sound different due to the requested new algorithms. Duplicate the old plugin/project before replacing if exact recall matters. VST3 identity is unchanged.
 
-## Old projects
+## Design references
+Applied the supplied native UI specification, not a generated image background. Removed decorative gradients, fake hardware/shadows and redundant cards. Practical critiques, not a reliable AI-authorship detector:
+- https://alexlavaee.me/blog/lessons-learned-designing-with-ai/
+- https://smoothui.dev/blog/ai-design-slop
+- https://www.wavesfactory.com/audio-plugins/trackspacer/ (public description of 32-band sidechain EQ)
 
-VST3 identity retained. Existing stored Influence and Release values are preserved; insert a fresh instance for 100%/40ms defaults. The old release ID now drives Smoothing with an extended range, so old normalized automation may need revision. Legacy Tolerance/Low/High/MaxReduction/PhaseAware IDs are retained in the host parameter list for compatibility but do not affect DSP. Old sessions without Mode default to Spectrum.
-
-## Validation and build
-
-Local core tests passed at 44.1, 48, 96 and 192kHz: unity startup/reconstruction, exact dry at 0%, latency, amplitude equation, stereo linking, smoothing, spectral root and finite mode automation. These tests use the same PocketDSP.h as the plugin. Native JUCE processor/editor sources also compiled in Linux. This is not proof of macOS host compatibility or subjective sound quality.
-
-GitHub Actions builds universal arm64+x86_64 macOS VST3, ad-hoc signs it, and runs pluginval 1.0.4 strictness 5. The plugin artifact is only packaged after those steps succeed. Check Actions results; do not assume a pushed commit is a passed build. There is no Apple Developer ID notarization. GitHub wraps the plugin ZIP in an artifact ZIP; extract both layers.
-
-Local core tests:
-
-```bash
-c++ -std=c++17 -O2 Tests/dsp_test.cpp -o dsp_test
-./dsp_test
-```
-
-Local Mac build: Xcode, CMake 3.22+, JUCE 8.0.4 beside this project, then `bash build_macos.sh`. Review JUCE and bundled SDK licensing and applicable patent rights before commercial distribution.
+Contrast adjustment permitted by specification: Light accent #5598C7 -> #4D8FBE (2.92 -> 3.27 against window); thumb border #8D9BA8 -> #7E8C99 (2.84 -> 3.44 against white). Secondary text contrast 5.71 Light and 8.14 Dark. Other tokens unchanged. Scope/mode changes follow the latest chat rather than the older specification.

@@ -1,144 +1,115 @@
 #include "PluginEditor.h"
-namespace ui {
-const juce::Colour bg{0xffececea},panel{0xfff8f8f6},screen{0xff191a1c},border{0xffb9bbbe},text{0xff202124},muted{0xff5b5e64},teal{0xfff4f4f2},orange{0xff96999f},ink{0xff191a1c},displayText{0xffdedee0},displayMuted{0xffa8abb0};
+#include <cstdlib>
+namespace {
 juce::Font font(float size,bool bold=false){
-#if JUCE_MAC
-    return juce::Font(juce::FontOptions("Avenir Next",size,bold?juce::Font::bold:juce::Font::plain));
+#if JUCE_LINUX
+ return juce::Font(juce::FontOptions("Liberation Sans",size,bold?juce::Font::bold:juce::Font::plain));
 #else
-    return juce::Font(juce::FontOptions("Liberation Sans",size,bold?juce::Font::bold:juce::Font::plain));
+ return juce::Font(juce::FontOptions("Arial",size,bold?juce::Font::bold:juce::Font::plain));
 #endif
 }
-void label(juce::Graphics& g,juce::String t,juce::Rectangle<int> r,float size=14,juce::Colour colour=muted,int align=juce::Justification::centredLeft){g.setColour(colour);g.setFont(font(size));g.drawText(t,r,align);}
-void box(juce::Graphics& g,juce::Rectangle<float> r,juce::Colour colour){g.setColour(colour);g.fillRoundedRectangle(r,10);g.setColour(border);g.drawRoundedRectangle(r,10,1);}
+void text(juce::Graphics& g,const juce::String& s,juce::Rectangle<float> r,float size,juce::Colour c,int align=juce::Justification::centredLeft){g.setColour(c);g.setFont(font(size));g.drawText(s,r,align);}
+void line(juce::Graphics& g,float x1,float y1,float x2,float y2,juce::Colour c,float w=1){g.setColour(c);g.drawLine(x1,y1,x2,y2,w);}
+bool parseNumber(juce::String s,float& value,bool hz=false){s=s.trim().toLowerCase().replace(",",".");double factor=hz&&s.contains("k")?1000:1;s=s.replace("khz","").replace("hz","").replace("ms","").replace("%","").trim();auto raw=s.toStdString();char* end=nullptr;double v=std::strtod(raw.c_str(),&end);if(end==raw.c_str()||*end!=0||!std::isfinite(v)||std::abs(v)>1e9)return false;value=(float)(v*factor);return true;}
+void focus(juce::Graphics& g,juce::Component& c,ThemeTokens& t,float radius=10){if(c.hasKeyboardFocus(false)){g.setColour(t[ThemeTokens::focusRing]);g.drawRoundedRectangle(c.getLocalBounds().toFloat().reduced(2),radius,2);}}
 }
-PocketLook::PocketLook(){
-    setDefaultSansSerifTypefaceName(juce::Font::getDefaultSansSerifFontName());
-    setColour(juce::Slider::textBoxTextColourId,ui::text);setColour(juce::Slider::textBoxBackgroundColourId,ui::panel);
-    setColour(juce::Slider::textBoxOutlineColourId,ui::border);setColour(juce::Slider::textBoxHighlightColourId,ui::ink.withAlpha(0.15f));
-    setColour(juce::TextButton::buttonColourId,ui::panel);setColour(juce::TextButton::buttonOnColourId,ui::ink);
-    setColour(juce::TextButton::textColourOffId,ui::muted);setColour(juce::TextButton::textColourOnId,ui::teal);
+ThemeTokens::ThemeTokens(bool d):dark(d){
+ const juce::uint32 light[]={0xffF6F7F8,0xff1B2127,0xffF8F9FA,0xff20262D,0xff58636F,0xffE8EDF3,0xffACB7C2,0xff4D8FBE,0xffD8DEE5,0xffD8DDE2,0xff39424B,0xffC5DDEE,0xffEDF1F5,0xff8796A5,0xff97C4E3,0xffFFFFFF,0xff7E8C99,0xffE2E6EA,0xffFFFFFF,0xffE9EDF0,0xffE9EDF1,0xffDDE4EA,0xff171B20,0xff245F90};
+ const juce::uint32 darks[]={0xff191D23,0xff101419,0xff242A32,0xffF1F4F8,0xffABB5C0,0xffE8EDF3,0xffACB7C2,0xff80B9E4,0xff3D4652,0xff343C46,0xff2A333D,0xffC5DDEE,0xffEDF1F5,0xff8796A5,0xff97C4E3,0xffD6E0E9,0xff91A3B5,0xff272F38,0xff414D5C,0xff303A46,0xffDDE4EA,0xffF0F3F6,0xff171B20,0xffA1D0F2};
+ for(size_t i=0;i<c.size();++i)c[i]=juce::Colour(d?darks[i]:light[i]);
 }
-void PocketLook::drawButtonBackground(juce::Graphics& g,juce::Button& b,const juce::Colour&,bool hover,bool down){
-    auto r=b.getLocalBounds().toFloat().reduced(5,5);
-    juce::DropShadow(juce::Colours::black.withAlpha(down?0.10f:0.20f),7,{0,3}).drawForRectangle(g,r.toNearestInt());
-    if(down)r.translate(0,1);bool on=b.getToggleState();
-    auto top=on?juce::Colour(0xff3a3c40):juce::Colour(0xffffffff);
-    auto bottom=on?juce::Colour(0xff18191c):juce::Colour(0xffe4e5e6);
-    if(hover){top=top.brighter(0.05f);bottom=bottom.brighter(0.05f);}
-    g.setGradientFill(juce::ColourGradient(top,r.getTopLeft(),bottom,r.getBottomLeft(),false));g.fillRoundedRectangle(r,8);
-    g.setColour(on?juce::Colour(0xff4c4e52):juce::Colour(0xffbfc1c4));g.drawRoundedRectangle(r,8,1);
+ThemeStore::ThemeStore(){juce::PropertiesFile::Options o;o.applicationName="PhasePocket";o.filenameSuffix="settings";o.folderName="RainlineMusic";o.osxLibrarySubFolder="Application Support";file=std::make_unique<juce::PropertiesFile>(o);dark=file->getValue("phasePocket.ui.theme","light")=="dark";}
+void ThemeStore::set(bool d){if(dark==d)return;dark=d;file->setValue("phasePocket.ui.theme",dark?"dark":"light");file->saveIfNeeded();sendChangeMessage();}
+Dial::Dial(juce::AudioProcessorValueTreeState& state,const juce::String& id,const juce::String& name,const juce::String& sub,const juce::String& units,ThemeTokens& t):theme(t),param(*state.getParameter(id)),attachment(param,[this](float v){setValue(v,juce::dontSendNotification);repaint();}),title(name),subtitle(sub),unit(units){
+ setName(name);setSliderStyle(juce::Slider::RotaryVerticalDrag);setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);setRange(param.getNormalisableRange().start,param.getNormalisableRange().end,param.getNormalisableRange().interval);setWantsKeyboardFocus(true);setTextValueSuffix(" "+units);
+ onValueChange=[this]{attachment.setValueAsCompleteGesture((float)getValue());};addChildComponent(entry);entry.onReturnKey=[this]{commit();};entry.onEscapeKey=[this]{entry.setVisible(false);grabKeyboardFocus();};entry.onFocusLost=[this]{entry.setVisible(false);};attachment.sendInitialUpdate();
 }
-juce::Font PocketLook::getTextButtonFont(juce::TextButton&,int){return ui::font(14,true);}
-void PocketLook::drawRotarySlider(juce::Graphics& g,int x,int y,int w,int h,float value,float start,float end,juce::Slider&){
-    const float side=(float)juce::jmin(w,h)-18;
-    auto r=juce::Rectangle<float>(side,side).withCentre({x+w*0.5f,y+h*0.5f});auto centre=r.getCentre();const float radius=side*0.5f;
-    juce::Path track,arc;track.addCentredArc(centre.x,centre.y,radius,radius,0,start,end,true);
-    g.setColour(ui::border);g.strokePath(track,juce::PathStrokeType(3));
-    arc.addCentredArc(centre.x,centre.y,radius,radius,0,start,start+value*(end-start),true);
-    g.setColour(ui::ink);g.strokePath(arc,juce::PathStrokeType(3,juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
-    auto face=r.reduced(9);juce::Path shadow;shadow.addEllipse(face);juce::DropShadow(juce::Colours::black.withAlpha(0.23f),9,{0,4}).drawForPath(g,shadow);
-    g.setGradientFill(juce::ColourGradient(juce::Colour(0xffffffff),face.getTopLeft(),juce::Colour(0xffd6d8da),face.getBottomRight(),false));g.fillEllipse(face);
-    g.setColour(juce::Colour(0xffafb2b6));g.drawEllipse(face,1);
-    const float a=start+value*(end-start);
-    const auto p=centre+juce::Point<float>(std::sin(a),-std::cos(a))*(radius-17),q=centre+juce::Point<float>(std::sin(a),-std::cos(a))*(radius-29);
-    g.setColour(ui::text);g.drawLine({p,q},3);
+Dial::~Dial(){end();}
+void Dial::paint(juce::Graphics& g){
+ float cx=121,cy=121,r=112,p=param.convertTo0to1((float)getValue()),a=juce::MathConstants<float>::pi*(.75f+1.5f*p);
+ juce::Path full,arc;full.addCentredArc(cx,cy,r,r,0,juce::MathConstants<float>::pi*1.25f,juce::MathConstants<float>::pi*2.75f,true);g.setColour(theme[ThemeTokens::inactiveTrack]);g.strokePath(full,juce::PathStrokeType(7,juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
+ if(p>0){arc.addCentredArc(cx,cy,r,r,0,juce::MathConstants<float>::pi*1.25f,juce::MathConstants<float>::pi*(1.25f+1.5f*p),true);g.setColour(theme[ThemeTokens::accent]);g.strokePath(arc,juce::PathStrokeType(7,juce::PathStrokeType::curved,juce::PathStrokeType::rounded));}
+ g.setColour(theme[ThemeTokens::controlSurface]);g.fillEllipse(cx-100,cy-100,200,200);auto thumb=juce::Rectangle<float>(20,20).withCentre({cx+r*std::cos(a),cy+r*std::sin(a)});g.setColour(theme[ThemeTokens::thumbFill]);g.fillEllipse(thumb);g.setColour(theme[ThemeTokens::thumbBorder]);g.drawEllipse(thumb,1);
+ text(g,title,{cx-94,cy-70,188,28},22,theme[ThemeTokens::textPrimary],juce::Justification::centred);text(g,subtitle,{cx-94,cy-39,188,24},18,theme[ThemeTokens::textSecondary],juce::Justification::centred);
+ auto number=juce::String(getValue(),1);float width=0;for(auto c:number)width+=c=='.'?14.f:31.f;float x=cx-width*.5f;for(auto c:number){float w=c=='.'?14.f:31.f;text(g,juce::String::charToString(c),{x,cy-10,w,66},56,theme[ThemeTokens::textPrimary],juce::Justification::centred);x+=w;}
+ text(g,unit,{cx-50,cy+58,100,24},18,theme[ThemeTokens::textSecondary],juce::Justification::centred);focus(g,*this,theme,18);
 }
-PhasePocketAudioProcessorEditor::PhasePocketAudioProcessorEditor(PhasePocketAudioProcessor& p):AudioProcessorEditor(&p),processor(p),keyBand(p.parameters){
-    setLookAndFeel(&look);setSize(920,684);
-    for(auto* s:{&influence,&smoothing}){s->setSliderStyle(juce::Slider::RotaryVerticalDrag);s->setTextBoxStyle(juce::Slider::TextBoxBelow,false,140,30);s->setRotaryParameters(juce::MathConstants<float>::pi*1.25f,juce::MathConstants<float>::pi*2.75f,true);addAndMakeVisible(*s);s->setColour(juce::Slider::textBoxTextColourId,ui::ink);s->setColour(juce::Slider::textBoxBackgroundColourId,ui::panel);}
-    influence.setTextValueSuffix(" %");smoothing.setTextValueSuffix(" ms");influence.setName("Influence");smoothing.setName("Smoothing");
-    influence.setTooltip("0%: dry. 100%: normal depth. Up to 150%: extra attenuation, never negative gain.");
-    influence.setDoubleClickReturnValue(true,100);addAndMakeVisible(keyBand);
-    smoothing.setDoubleClickReturnValue(true,40);
-    smoothing.setTooltip("Release time constant. 0 ms follows the key most closely; larger values extend the carve.");
-    amountAttach=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.parameters,"amount",influence);
-    smoothAttach=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.parameters,"release",smoothing);
-    for(auto* b:{&spectrum,&amplitude})addAndMakeVisible(*b);
-    auto choose=[this](int index){auto* m=processor.parameters.getParameter("mode");m->beginChangeGesture();m->setValueNotifyingHost(m->convertTo0to1((float)index));m->endChangeGesture();refreshTrace();};
-    spectrum.onClick=[choose]{choose(0);};amplitude.onClick=[choose]{choose(1);};
-    spectrum.setTooltip("Phase-aware spectral budget, 20 Hz to 20 kHz (up to Nyquist).");
-    amplitude.setTooltip("Full-band gain = 1 - Influence * smoothed abs(sidechain). Filtered 0 dBFS key maps to full ducking at 100%.");
-    refreshTrace();startTimerHz(30);
+void Dial::mouseDown(const juce::MouseEvent&){grabKeyboardFocus();startP=param.getValue();}
+void Dial::mouseDrag(const juce::MouseEvent& e){float p=juce::jlimit(0.f,1.f,startP-e.getDistanceFromDragStartY()/(e.mods.isShiftDown()?2400.f:240.f)),v=param.convertFrom0to1(p);if(v==(float)getValue())return;if(!gesture){attachment.beginGesture();gesture=true;}attachment.setValueAsPartOfGesture(v);setValue(v,juce::dontSendNotification);repaint();}
+void Dial::end(){if(gesture){attachment.endGesture();gesture=false;}}
+void Dial::mouseUp(const juce::MouseEvent&){end();}
+void Dial::focusLost(FocusChangeType){end();repaint();}
+void Dial::complete(float v){end();v=param.getNormalisableRange().snapToLegalValue(v);attachment.setValueAsCompleteGesture(v);setValue(v,juce::dontSendNotification);repaint();}
+void Dial::mouseDoubleClick(const juce::MouseEvent& e){end();if(juce::Rectangle<float>(29,111,184,66).contains(e.position))edit();else complete(param.convertFrom0to1(param.getDefaultValue()));}
+void Dial::edit(){entry.setBounds(29,111,184,66);entry.setFont(font(48));entry.setColour(juce::TextEditor::backgroundColourId,theme[ThemeTokens::controlSurface]);entry.setColour(juce::TextEditor::textColourId,theme[ThemeTokens::textPrimary]);entry.setColour(juce::TextEditor::outlineColourId,theme[ThemeTokens::focusRing]);entry.setText(juce::String(getValue(),1),false);entry.setVisible(true);entry.grabKeyboardFocus();entry.selectAll();}
+void Dial::commit(){float v;if(!parseNumber(entry.getText(),v)){entry.setTooltip("Enter a finite number");entry.setColour(juce::TextEditor::outlineColourId,juce::Colours::red);return;}complete(v);entry.setVisible(false);grabKeyboardFocus();}
+void Dial::mouseWheelMove(const juce::MouseEvent&,const juce::MouseWheelDetails& d){if(!hasKeyboardFocus(false)||d.deltaY==0)return;float delta=(d.deltaY>0?1.f:-1.f)*(juce::ModifierKeys::getCurrentModifiers().isShiftDown()?0.001f:0.01f);complete(param.convertFrom0to1(juce::jlimit(0.f,1.f,param.getValue()+delta)));}
+bool Dial::keyPressed(const juce::KeyPress& k){int code=k.getKeyCode();if(code==juce::KeyPress::escapeKey){end();return true;}float step=param.getNormalisableRange().interval;if(step<=0)step=(float)(getMaximum()-getMinimum())*(k.getModifiers().isShiftDown()?0.0005f:0.005f);if(code==juce::KeyPress::homeKey)complete((float)getMinimum());else if(code==juce::KeyPress::endKey)complete((float)getMaximum());else if(code==juce::KeyPress::upKey||code==juce::KeyPress::rightKey)complete((float)getValue()+step);else if(code==juce::KeyPress::downKey||code==juce::KeyPress::leftKey)complete((float)getValue()-step);else if(code==juce::KeyPress::returnKey)edit();else return false;return true;}
+RangeControl::RangeControl(juce::AudioProcessorValueTreeState& p,ThemeTokens& t):theme(t),lowParam(*p.getParameter("scLow")),highParam(*p.getParameter("scHigh")),lowAttach(lowParam,[this](float v){low=v;resized();repaint();}),highAttach(highParam,[this](float v){high=v;resized();repaint();}){
+ addAndMakeVisible(lowHandle);addAndMakeVisible(highHandle);addAndMakeVisible(resetButton);resetButton.onClick=[this]{reset();};lowHandle.setExplicitFocusOrder(1);highHandle.setExplicitFocusOrder(2);resetButton.setExplicitFocusOrder(3);addChildComponent(entry);entry.onReturnKey=[this]{commit();};entry.onEscapeKey=[this]{entry.setVisible(false);};entry.onFocusLost=[this]{entry.setVisible(false);};setTooltip("Filter the sidechain only. Double-click a frequency to enter Hz or kHz.");lowAttach.sendInitialUpdate();highAttach.sendInitialUpdate();
 }
-PhasePocketAudioProcessorEditor::~PhasePocketAudioProcessorEditor(){stopTimer();setLookAndFeel(nullptr);}
-void PhasePocketAudioProcessorEditor::resized(){spectrum.setBounds(612,19,136,52);amplitude.setBounds(748,19,148,52);keyBand.setBounds(24,578,650,88);influence.setBounds(712,136,156,158);smoothing.setBounds(712,362,156,158);}
-void PhasePocketAudioProcessorEditor::refreshTrace(){
-    PocketTrace t;while(processor.popTrace(t)){history[(size_t)cursor]=t;cursor=(cursor+1)%600;}
-    amplitudeMode=processor.parameters.getRawParameterValue("mode")->load()>0.5f;
-    spectrum.setToggleState(!amplitudeMode,juce::dontSendNotification);amplitude.setToggleState(amplitudeMode,juce::dontSendNotification);keyBand.sync();repaint();
+RangeControl::~RangeControl(){finish();}
+float RangeControl::x(float v) const {return 26+std::log(juce::jlimit(20.f,20000.f,v)/20.f)/std::log(1000.f)*1072;}
+void RangeControl::resized(){lowHandle.setBounds((int)x(low)-16,34,32,40);highHandle.setBounds((int)x(high)-16,34,32,40);resetButton.setBounds(1038,0,90,36);}
+void RangeControl::paint(juce::Graphics& g){
+ text(g,"Sidechain filter",{14,4,180,28},22,theme[ThemeTokens::textPrimary]);auto hz=[](float v){return v>=1000?juce::String(v/1000,1)+" kHz":juce::String((int)v)+" Hz";};text(g,hz(low),{196,4,90,28},22,theme[ThemeTokens::textPrimary]);line(g,288,8,288,30,theme[ThemeTokens::separator]);text(g,hz(high),{304,4,160,28},22,theme[ThemeTokens::textPrimary]);line(g,26,50,1098,50,theme[ThemeTokens::inactiveTrack],5);line(g,x(low),50,x(high),50,theme[ThemeTokens::accent],5);
+ for(float f:{20.f,100.f,1000.f,10000.f,20000.f}){float px=x(f);line(g,px,64,px,69,theme[ThemeTokens::separator]);juce::String label=f>=1000?juce::String((int)(f/1000))+"k":juce::String((int)f);text(g,label,{px-24,71,48,22},18,theme[ThemeTokens::textSecondary],juce::Justification::centred);}
 }
+void RangeControl::Handle::paint(juce::Graphics& g){auto r=juce::Rectangle<float>(6,6,20,20);g.setColour(owner.theme[ThemeTokens::thumbFill]);g.fillEllipse(r);g.setColour(owner.theme[ThemeTokens::thumbBorder]);g.drawEllipse(r,1);focus(g,*this,owner.theme,8);}
+void RangeControl::Handle::mouseDown(const juce::MouseEvent&){grabKeyboardFocus();owner.finish();owner.active=owner.lastActive=index;}
+void RangeControl::Handle::mouseDrag(const juce::MouseEvent& e){owner.drag(e.getEventRelativeTo(&owner).position.x);}
+void RangeControl::Handle::mouseUp(const juce::MouseEvent&){owner.finish();}
+bool RangeControl::Handle::keyPressed(const juce::KeyPress& k){float current=index?owner.high:owner.low;int code=k.getKeyCode();if(code==juce::KeyPress::escapeKey){owner.finish();return true;}if(code==juce::KeyPress::returnKey){owner.edit(index);return true;}if(code==juce::KeyPress::homeKey)current=20;else if(code==juce::KeyPress::endKey)current=20000;else if(code==juce::KeyPress::upKey||code==juce::KeyPress::rightKey)current*=k.getModifiers().isShiftDown()?1.001f:1.01f;else if(code==juce::KeyPress::downKey||code==juce::KeyPress::leftKey)current/=k.getModifiers().isShiftDown()?1.001f:1.01f;else return false;owner.set(index,current);return true;}
+void RangeControl::finish(){if(gesture){(active==0?lowAttach:highAttach).endGesture();gesture=false;}active=-1;}
+void RangeControl::set(int which,float v,bool dragging){v=which?juce::jlimit(low,20000.f,v):juce::jlimit(20.f,high,v);auto& a=which?highAttach:lowAttach;auto& p=which?highParam:lowParam;v=p.getNormalisableRange().snapToLegalValue(v);if(v==(which?high:low))return;if(dragging){if(!gesture){a.beginGesture();gesture=true;}a.setValueAsPartOfGesture(v);}else a.setValueAsCompleteGesture(v);if(which)high=v;else low=v;resized();repaint();}
+void RangeControl::drag(float px){if(active<0)return;set(active,20*std::pow(1000.f,juce::jlimit(0.f,1.f,(px-26)/1072)),true);}
+void RangeControl::mouseDown(const juce::MouseEvent& e){if(e.position.y<32)return;finish();float a=std::abs(e.position.x-x(low)),b=std::abs(e.position.x-x(high));active=a==b?lastActive:a<b?0:1;lastActive=active;drag(e.position.x);}
+void RangeControl::mouseDrag(const juce::MouseEvent& e){drag(e.position.x);}
+void RangeControl::mouseUp(const juce::MouseEvent&){finish();}
+void RangeControl::reset(){finish();lowAttach.setValueAsCompleteGesture(lowParam.convertFrom0to1(lowParam.getDefaultValue()));highAttach.setValueAsCompleteGesture(highParam.convertFrom0to1(highParam.getDefaultValue()));}
+void RangeControl::mouseDoubleClick(const juce::MouseEvent& e){if(e.position.y<34&&e.position.x>=194&&e.position.x<470)edit(e.position.x<290?0:1);}
+void RangeControl::edit(int i){finish();editing=i;entry.setBounds(i?304:196,0,i?160:90,36);entry.setFont(font(22));entry.setColour(juce::TextEditor::backgroundColourId,theme[ThemeTokens::controlSurface]);entry.setColour(juce::TextEditor::textColourId,theme[ThemeTokens::textPrimary]);entry.setText(juce::String(i?high:low),false);entry.setVisible(true);entry.grabKeyboardFocus();entry.selectAll();}
+void RangeControl::commit(){float v;if(!parseNumber(entry.getText(),v,true)){entry.setColour(juce::TextEditor::outlineColourId,juce::Colours::red);return;}set(editing,v);entry.setVisible(false);}
+void PhasePocketAudioProcessorEditor::FlatLook::drawButtonBackground(juce::Graphics& g,juce::Button& b,const juce::Colour&,bool hover,bool down){if(b.getButtonText()=="Reset"){focus(g,b,theme);return;}g.setColour(theme[b.getToggleState()?ThemeTokens::segmentSelected:hover||down?ThemeTokens::hoverSurface:ThemeTokens::segmentBg]);g.fillRoundedRectangle(b.getLocalBounds().toFloat().reduced(1),8);focus(g,b,theme);}
+juce::Font PhasePocketAudioProcessorEditor::FlatLook::getTextButtonFont(juce::TextButton&,int){return font(18);}
+void PhasePocketAudioProcessorEditor::IconButton::paintButton(juce::Graphics& g,bool hover,bool down){
+ using T=ThemeTokens;auto r=getLocalBounds().toFloat().reduced(1);g.setColour(theme[hover?T::iconButtonHover:T::iconButtonSurface]);g.fillRoundedRectangle(r,10);g.setColour(theme[T::iconInk].withAlpha(isPower&&getToggleState()?0.55f:1.f));auto centre=r.getCentre();juce::Path p;
+ if(isPower){p.addCentredArc(centre.x,centre.y+1,8,8,0,.65f,juce::MathConstants<float>::twoPi-.65f,true);p.startNewSubPath(centre.x,centre.y-10);p.lineTo(centre.x,centre.y-1);if(getToggleState()){p.startNewSubPath(centre.x-3,centre.y+14);p.lineTo(centre.x+3,centre.y+14);}}
+ else if(theme.dark){p.addEllipse(centre.x-3.7f,centre.y-3.7f,7.4f,7.4f);for(int i=0;i<8;++i){float a=i*juce::MathConstants<float>::pi/4;p.startNewSubPath(centre.x+7*std::cos(a),centre.y+7*std::sin(a));p.lineTo(centre.x+9.5f*std::cos(a),centre.y+9.5f*std::sin(a));}}
+ else{p.startNewSubPath(centre.x+8,centre.y+3);p.cubicTo(centre.x-4,centre.y+8,centre.x-10,centre.y-4,centre.x-2,centre.y-9);p.cubicTo(centre.x-16,centre.y-8,centre.x-9,centre.y+17,centre.x+8,centre.y+3);p.closeSubPath();}
+ g.strokePath(p,juce::PathStrokeType(1.8f,juce::PathStrokeType::curved,juce::PathStrokeType::rounded));if(down){g.setColour(theme[T::iconInk].withAlpha(.18f));g.drawRoundedRectangle(r,10,1);}focus(g,*this,theme);
+}
+PhasePocketAudioProcessorEditor::PhasePocketAudioProcessorEditor(PhasePocketAudioProcessor& p):AudioProcessorEditor(&p),processor(p),theme(themes->dark),influence(p.parameters,"amount","Influence","Depth","%",theme),smoothing(p.parameters,"release","Smoothing","Release / recovery","ms",theme),range(p.parameters,theme),bypassAttach(p.parameters,"bypass",bypassButton),modeAttach(*p.parameters.getParameter("mode"),[this](float v){amplitude.setToggleState(v>.5f,juce::dontSendNotification);spectrum.setToggleState(v<.5f,juce::dontSendNotification);repaint();}){
+ look.setDefaultSansSerifTypefaceName(juce::Font::getDefaultSansSerifFontName());setLookAndFeel(&look);addAndMakeVisible(canvas);for(auto* c:std::initializer_list<juce::Component*>{&amplitude,&spectrum,&themeButton,&bypassButton,&influence,&smoothing,&range})canvas.addAndMakeVisible(c);
+ amplitude.peer=&spectrum;spectrum.peer=&amplitude;amplitude.onClick=[this]{modeAttach.setValueAsCompleteGesture(1);};spectrum.onClick=[this]{modeAttach.setValueAsCompleteGesture(0);};themeButton.onClick=[this]{themes->set(!themes->dark);applyTheme();};bypassButton.setClickingTogglesState(true);themeButton.setWantsKeyboardFocus(true);bypassButton.setWantsKeyboardFocus(true);
+ amplitude.setTooltip("Amplitude: waveform-following full-band ducking.");spectrum.setTooltip("Spectrum: broad, phase-independent spectral ducking. Smoothing controls recovery.");influence.setTooltip("0-100% normal depth. 125% = 2.83x, 150% = 8x depth. Double-click the number to edit.");smoothing.setTooltip("Recovery time in milliseconds. Applies to both modes.");
+ int order=1;for(auto* c:std::initializer_list<juce::Component*>{&amplitude,&spectrum,&themeButton,&bypassButton,&influence,&smoothing,&range})c->setExplicitFocusOrder(order++);
+ setResizable(true,true);setResizeLimits(900,672,1800,1344);getConstrainer()->setFixedAspectRatio(75.0/56.0);setSize(1200,896);PocketTrace discard;while(processor.popTrace(discard)){}processor.editorOpen.store(true);themes->addChangeListener(this);applyTheme();modeAttach.sendInitialUpdate();startTimerHz(30);
+}
+PhasePocketAudioProcessorEditor::~PhasePocketAudioProcessorEditor(){stopTimer();processor.editorOpen.store(false);themes->removeChangeListener(this);setLookAndFeel(nullptr);}
+void PhasePocketAudioProcessorEditor::applyTheme(){theme=ThemeTokens(themes->dark);look.setColour(juce::TextButton::textColourOffId,theme[ThemeTokens::textSecondary]);look.setColour(juce::TextButton::textColourOnId,theme[ThemeTokens::textPrimary]);themeButton.setTooltip(theme.dark?"Switch to light theme":"Switch to dark theme");repaint();canvas.repaint();}
+void PhasePocketAudioProcessorEditor::changeListenerCallback(juce::ChangeBroadcaster*){applyTheme();}
+void PhasePocketAudioProcessorEditor::setThemeForPreview(bool d){themes->set(d);applyTheme();}
+void PhasePocketAudioProcessorEditor::resized(){float s=juce::jmin(getWidth()/1200.f,getHeight()/896.f);canvas.setBounds(0,0,1200,896);canvas.setTransform(juce::AffineTransform::scale(s));amplitude.setBounds(869,35,115,36);spectrum.setBounds(984,35,115,36);themeButton.setBounds(1108,33,36,40);bypassButton.setBounds(1150,33,36,40);influence.setBounds(924,137,242,242);smoothing.setBounds(924,441,242,242);range.setBounds(38,733,1128,96);}
+void PhasePocketAudioProcessorEditor::refreshTrace(){PocketTrace t;while(processor.popTrace(t)){if(!std::isfinite(t.time))continue;history[(size_t)cursor]=t;cursor=(cursor+1)%4096;filled=juce::jmin(filled+1,4096);}bypassButton.setTooltip(bypassButton.getToggleState()?"Enable processing":"Bypass processing");repaint();}
 void PhasePocketAudioProcessorEditor::paint(juce::Graphics& g){
-    g.fillAll(ui::bg);g.setColour(ui::border);g.drawHorizontalLine(85,24,896);
-    ui::label(g,"PHASE POCKET",{28,20,365,37},28,ui::text);
-    ui::label(g,"RAINLINE  /  DUAL-MODE SIDECHAIN",{30,57,400,20},13);
-    ui::box(g,{24,104,650,208},ui::screen);ui::box(g,{24,328,650,236},ui::screen);ui::box(g,{690,104,206,460},ui::panel);
-    ui::label(g,"GAIN HISTORY",{42,117,205,24},14,ui::displayText);
-    ui::label(g,amplitudeMode?"WAVEFORM ENVELOPE":"SPECTRAL GAIN ESTIMATE",{265,117,388,24},13,ui::teal,juce::Justification::centredRight);
-    const juce::Rectangle<float> plot(42,156,575,120);
-    for(int i=0;i<=4;++i){g.setColour(juce::Colour(0xff37393d));g.drawHorizontalLine((int)(plot.getY()+i*30),plot.getX(),plot.getRight());}
-    for(int i=0;i<=5;++i){g.setColour(juce::Colour(0xff303236));g.drawVerticalLine((int)(plot.getX()+i*115),plot.getY(),plot.getBottom());}
-    juce::Path gain;
-    for(int i=0;i<600;++i){auto v=history[(size_t)((cursor+i)%600)];float x=plot.getX()+i*plot.getWidth()/599,y=plot.getY()+(1-juce::jlimit(0.f,1.f,v.gain))*plot.getHeight();if(i==0)gain.startNewSubPath(x,y);else gain.lineTo(x,y);}
-    auto fill=gain;fill.lineTo(plot.getRight(),plot.getY());fill.lineTo(plot.getX(),plot.getY());fill.closeSubPath();g.setColour(ui::teal.withAlpha(0.10f));g.fillPath(fill);
-    g.setColour(ui::teal);g.strokePath(gain,juce::PathStrokeType(2));
-    ui::label(g,"100%",{623,147,48,20},12,ui::displayMuted);ui::label(g,"0%",{625,266,38,20},12,ui::displayMuted);
-    ui::label(g,"-500 ms",{42,281,130,20},12,ui::displayMuted);ui::label(g,"NOW",{561,281,60,20},12,ui::displayMuted,juce::Justification::centredRight);
-    ui::label(g,"OSCILLOSCOPE",{42,339,180,24},14,ui::displayText);
-    ui::label(g,"IN",{354,339,46,24},13,ui::displayMuted);ui::label(g,"KEY",{410,339,48,24},13,ui::orange);ui::label(g,"OUT",{474,339,50,24},13,ui::teal);ui::label(g,"L / MONO",{551,339,108,24},12,ui::displayMuted);
-    const juce::Rectangle<float> scope(42,380,607,144);
-    for(int i=0;i<=4;++i){g.setColour(juce::Colour(0xff37393d));g.drawHorizontalLine((int)(scope.getY()+i*36),scope.getX(),scope.getRight());}
-    auto trace=[&](int kind,juce::Colour col){g.setColour(col);for(int i=0;i<600;++i){auto v=history[(size_t)((cursor+i)%600)];float lo=kind==0?v.inLo:kind==1?v.keyLo:v.outLo,hi=kind==0?v.inHi:kind==1?v.keyHi:v.outHi,x=scope.getX()+i*scope.getWidth()/599,top=scope.getCentreY()-juce::jlimit(-1.f,1.f,hi)*68,bottom=scope.getCentreY()-juce::jlimit(-1.f,1.f,lo)*68;g.drawLine(x,top,x,juce::jmax(top+0.6f,bottom),1);}};
-    trace(0,ui::displayMuted.withAlpha(0.3f));trace(1,ui::orange.withAlpha(0.8f));trace(2,ui::teal);
-    ui::label(g,"Time-aligned input / filtered key / output",{42,534,470,20},12,ui::displayMuted);
-    ui::label(g,"+/- 1.0",{561,534,86,20},12,ui::displayMuted,juce::Justification::centredRight);
-    ui::label(g,"INFLUENCE",{706,113,174,24},15,ui::text,juce::Justification::centred);
-    ui::label(g,"100% normal / 150% deep",{704,301,178,22},13,ui::muted,juce::Justification::centred);
-    g.setColour(ui::border);g.drawHorizontalLine(334,710,876);
-    ui::label(g,"SMOOTHING",{706,339,174,24},15,ui::text,juce::Justification::centred);
-    ui::label(g,"Release / recovery",{704,527,178,22},13,ui::muted,juce::Justification::centred);
-    const double sr=processor.getSampleRate()>0?processor.getSampleRate():48000;
-    ui::label(g,"PHASE POCKET / 0.3",{702,585,190,22},12,ui::muted,juce::Justification::centred);
-    ui::label(g,juce::String(1000*pocket::N/sr,1)+" ms latency",{702,610,190,22},13,ui::muted,juce::Justification::centred);
-    ui::label(g,"STEREO LINKED",{702,636,190,22},12,ui::muted,juce::Justification::centred);
-}
-KeyBand::KeyBand(juce::AudioProcessorValueTreeState& p):state(p){setName("Sidechain frequency range");setWantsKeyboardFocus(true);sync();}
-float KeyBand::position(float hz) const {return 92.f+std::log(hz/20.f)/std::log(1000.f)*(getWidth()-184.f);}
-void KeyBand::sync(){if(active<0){low=state.getRawParameterValue("scLow")->load();high=state.getRawParameterValue("scHigh")->load();if(low>high)std::swap(low,high);}repaint();}
-void KeyBand::paint(juce::Graphics& g){
-    ui::box(g,getLocalBounds().toFloat().reduced(0.5f),ui::panel);
-    ui::label(g,"SIDECHAIN FILTER",{16,8,210,24},13,ui::text);
-    const bool full=low<=20.01f && high>=19999;
-    ui::label(g,full?"FULL RANGE":"FILTERED KEY",{232,8,218,24},12,ui::muted,juce::Justification::centred);
-    auto reset=juce::Rectangle<float>((float)getWidth()-126,8,110,24);
-    g.setColour(juce::Colour(0xffe4e5e6));g.fillRoundedRectangle(reset,5);
-    ui::label(g,"RESET",reset.toNearestInt(),12,ui::text,juce::Justification::centred);
-    const float left=position(low),right=position(high),y=55;
-    g.setColour(ui::border);g.drawLine(92,y,(float)getWidth()-92,y,4);
-    g.setColour(ui::ink);g.drawLine(left,y,right,y,4);
-    for(float hz:{20.f,100.f,1000.f,10000.f,20000.f}){float x=position(hz);g.setColour(ui::border);g.drawLine(x,64,x,69,1);}
-    for(float x:{left,right}){
-        auto thumb=juce::Rectangle<float>(x-8,43,16,24);
-        juce::DropShadow(juce::Colours::black.withAlpha(0.18f),5,{0,2}).drawForRectangle(g,thumb.toNearestInt());
-        g.setGradientFill(juce::ColourGradient(juce::Colours::white,thumb.getTopLeft(),juce::Colour(0xffdedfe1),thumb.getBottomLeft(),false));g.fillRoundedRectangle(thumb,5);
-        g.setColour(ui::muted);g.drawRoundedRectangle(thumb,5,1);g.drawLine(x,49,x,61,1);
-    }
-    auto hz=[](float v){return v>=1000?juce::String(v/1000,1)+"k":juce::String((int)v)+" Hz";};
-    ui::label(g,hz(low),{12,43,72,24},14,ui::text,juce::Justification::centred);
-    ui::label(g,hz(high),{getWidth()-84,43,72,24},14,ui::text,juce::Justification::centred);
-}
-void KeyBand::apply(float x){
-    float t=juce::jlimit(0.f,1.f,(x-92.f)/(getWidth()-184.f)),hz=20*std::pow(1000.f,t);
-    if(active==0)low=juce::jlimit(20.f,high,hz);else high=juce::jlimit(low,20000.f,hz);
-    auto* p=state.getParameter(active==0?"scLow":"scHigh");p->setValueNotifyingHost(p->convertTo0to1(active==0?low:high));repaint();
-}
-void KeyBand::mouseDown(const juce::MouseEvent& e){
-    if(e.position.y<34 && e.position.x>getWidth()-130){mouseDoubleClick(e);return;}if(e.position.y<34)return;
-    active=std::abs(e.position.x-position(low))<std::abs(e.position.x-position(high))?0:1;
-    state.getParameter(active==0?"scLow":"scHigh")->beginChangeGesture();apply(e.position.x);
-}
-void KeyBand::mouseDrag(const juce::MouseEvent& e){if(active>=0)apply(e.position.x);}
-void KeyBand::mouseUp(const juce::MouseEvent&){if(active>=0)state.getParameter(active==0?"scLow":"scHigh")->endChangeGesture();active=-1;sync();}
-void KeyBand::mouseDoubleClick(const juce::MouseEvent&){
-    if(active>=0){state.getParameter(active==0?"scLow":"scHigh")->endChangeGesture();active=-1;}
-    for(auto id:{"scLow","scHigh"}){auto* p=state.getParameter(id);p->beginChangeGesture();p->setValueNotifyingHost(p->convertTo0to1(juce::String(id)=="scLow"?20.f:20000.f));p->endChangeGesture();}sync();
+ using T=ThemeTokens;g.fillAll(theme[T::windowBg]);g.addTransform(juce::AffineTransform::scale(juce::jmin(getWidth()/1200.f,getHeight()/896.f)));
+ text(g,"Phase Pocket",{38,24,330,40},34,theme[T::textPrimary]);text(g,"RAINLINE",{40,67,220,20},18,theme[T::textSecondary]);g.setColour(theme[T::segmentBg]);g.fillRoundedRectangle(866,32,236,42,10);g.setColour(theme[T::analyzerBg]);g.fillRoundedRectangle(38,112,860,592,22);
+ text(g,"Gain history",{64,136,500,32},24,theme[T::analyzerText]);text(g,"Oscilloscope",{64,430,500,32},24,theme[T::analyzerText]);auto plot=juce::Rectangle<float>(118,186,740,170);
+ for(int i=0;i<=4;++i)line(g,118,186+i*42.5f,858,186+i*42.5f,theme[T::analyzerGrid]);for(int i=0;i<=5;++i)line(g,118+i*148,186,118+i*148,356,theme[T::analyzerGrid]);
+ text(g,"100%",{62,174,52,24},18,theme[T::analyzerSecondary]);text(g,"0%",{62,341,52,24},18,theme[T::analyzerSecondary]);text(g,"-500 ms",{118,363,140,24},18,theme[T::analyzerSecondary]);text(g,"Now",{778,363,80,24},18,theme[T::analyzerSecondary],juce::Justification::centredRight);
+ line(g,64,408,872,408,theme[T::analyzerGrid]);line(g,928,408,1162,408,theme[T::separator]);line(g,38,720,1166,720,theme[T::separator]);line(g,38,838,1166,838,theme[T::separator]);double now=filled?history[(size_t)((cursor+4095)%4096)].time:0;
+ {juce::Graphics::ScopedSaveState saved(g);g.reduceClipRegion(plot.toNearestInt());juce::Path trace;bool started=false;float first=858;
+  for(int i=0;i<filled;++i){auto& v=history[(size_t)((cursor-filled+i+4096)%4096)];double age=now-v.time;if(age<0||age>.5||!std::isfinite(v.gain))continue;float px=(float)(858-age*1480),py=356-juce::jlimit(0.f,1.f,v.gain)*170;if(!started){trace.startNewSubPath(px,py);first=px;started=true;}else trace.lineTo(px,py);}
+  if(started){auto fill=trace;fill.lineTo(858,356);fill.lineTo(first,356);fill.closeSubPath();g.setGradientFill(juce::ColourGradient(theme[T::graphMain].withAlpha(.1f),0,186,theme[T::graphMain].withAlpha(0.f),0,356,false));g.fillPath(fill);g.setColour(theme[T::graphMain]);g.strokePath(trace,juce::PathStrokeType(1.7f));}}
+ {juce::Graphics::ScopedSaveState saved(g);g.reduceClipRegion(64,482,808,160);line(g,64,562,872,562,theme[T::analyzerGrid]);for(int kind=0;kind<2;++kind){std::array<float,808>lo{},hi{};std::array<bool,808>seen{};
+   for(int i=0;i<filled;++i){auto& v=history[(size_t)((cursor-filled+i+4096)%4096)];double age=now-v.time;if(age<0||age>1)continue;int px=juce::jlimit(0,807,(int)(807-age*807));float l=kind?v.keyLo:v.inLo,h=kind?v.keyHi:v.inHi;if(!std::isfinite(l)||!std::isfinite(h))continue;if(!seen[px]){lo[px]=l;hi[px]=h;seen[px]=true;}else{lo[px]=juce::jmin(lo[px],l);hi[px]=juce::jmax(hi[px],h);}}
+   g.setColour(kind?theme[T::waveIn]:theme[T::waveOut].withAlpha(.55f));for(int i=0;i<808;++i)if(seen[i]){float top=562-juce::jlimit(-1.f,1.f,hi[i])*80,bottom=562-juce::jlimit(-1.f,1.f,lo[i])*80;g.drawLine(64.f+i,top,64.f+i,juce::jmax(top+.5f,bottom),kind?1.3f:1.f);}
+  }}
+ text(g,"-1 s",{64,658,100,24},18,theme[T::analyzerSecondary]);text(g,"Now",{792,658,80,24},18,theme[T::analyzerSecondary],juce::Justification::centredRight);g.setColour(theme[T::accent]);g.fillEllipse(38,859,10,10);text(g,"Stereo linked",{56,851,160,26},18,theme[T::textPrimary]);double sr=processor.getSampleRate();text(g,sr>0?juce::String(1000*processor.getLatencySamples()/sr,1)+" ms latency":"Latency --",{220,851,240,26},18,theme[T::textPrimary]);
+#ifdef JucePlugin_VersionString
+ text(g,"v" JucePlugin_VersionString,{1086,851,80,26},18,theme[T::textSecondary],juce::Justification::centredRight);
+#else
+ text(g,"dev",{1086,851,80,26},18,theme[T::textSecondary],juce::Justification::centredRight);
+#endif
 }
