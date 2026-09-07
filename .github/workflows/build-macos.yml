@@ -16,13 +16,20 @@ jobs:
         run: |
           c++ -std=c++17 -O2 Tests/spectral_budget_test.cpp -o spectral_budget_test
           ./spectral_budget_test
-      - name: Configure
-        run: cmake -S . -B build -G Xcode -DJUCE_DIR="$PWD/JUCE"
+      - name: Configure universal build
+        run: cmake -S . -B build -G Xcode -DJUCE_DIR="$PWD/JUCE" -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
       - name: Build
         run: cmake --build build --config Release --target PhasePocket_VST3
+      - name: Sign and inspect
+        run: |
+          PLUGIN="build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3"
+          codesign --force --deep --sign - "$PLUGIN"
+          codesign --verify --deep --strict --verbose=2 "$PLUGIN"
+          file "$PLUGIN/Contents/MacOS/Phase Pocket"
+          lipo -info "$PLUGIN/Contents/MacOS/Phase Pocket"
       - name: Package
-        run: ditto -c -k --sequesterRsrc --keepParent "build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3" PhasePocket-macOS-VST3.zip
+        run: ditto -c -k --sequesterRsrc --keepParent "build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3" PhasePocket-macOS-Universal-VST3.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: PhasePocket-macOS-VST3
-          path: PhasePocket-macOS-VST3.zip
+          name: PhasePocket-macOS-Universal-VST3
+          path: PhasePocket-macOS-Universal-VST3.zip
