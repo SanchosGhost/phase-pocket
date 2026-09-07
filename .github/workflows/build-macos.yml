@@ -1,0 +1,28 @@
+name: Build macOS VST3
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download JUCE 8.0.4
+        run: |
+          curl -L https://github.com/juce-framework/JUCE/releases/download/8.0.4/juce-8.0.4-osx.zip -o juce.zip
+          unzip -q juce.zip
+      - name: Test spectral budget math
+        run: |
+          c++ -std=c++17 -O2 Tests/spectral_budget_test.cpp -o spectral_budget_test
+          ./spectral_budget_test
+      - name: Configure
+        run: cmake -S . -B build -G Xcode -DJUCE_DIR="$PWD/JUCE"
+      - name: Build
+        run: cmake --build build --config Release --target PhasePocket_VST3
+      - name: Package
+        run: ditto -c -k --sequesterRsrc --keepParent "build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3" PhasePocket-macOS-VST3.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhasePocket-macOS-VST3
+          path: PhasePocket-macOS-VST3.zip
