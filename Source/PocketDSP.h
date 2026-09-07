@@ -15,14 +15,26 @@ class Engine{
  std::array<float,N>window{},ampGainDelay{},guardDelay{};std::array<std::array<float,N>,2>input{},key{};std::array<std::array<float,R>,2>ola{};std::array<float,R>gainOla{};std::array<std::array<Complex,N>,2>B{},K{};
  float bypassMix=0,targetBypass=0;double msPosition=0,targetMs=0;unsigned frameCounter=0;int pos=0,outPos=0,hop=0,priming=0;double rate=48000;
  float envelope=0,releaseSample=0,releaseFrame=0,amount=1,targetAmount=1,mode=0,targetMode=0,slew=0;
- float fastEnv=0,slowEnv=0,eventPeak=0,keyShape=0,targetDurationMs=2000,targetSustain=1;int eventAge=0,refractory=0,silenceSamples=0;bool eventActive=false;
+ float fastEnv=0,slowEnv=0,eventPeak=0,keyShape=0,targetDurationMs=2000,targetSustain=1;int eventAge=0,refractory=0,silenceSamples=0;bool eventActive=false,onsetWasHigh=false;
  static float clean(float x)noexcept{return std::isfinite(x)?x:0;}
  float shapeKey(float level)noexcept{
   float fastC=(float)std::exp(-1.0/(rate*.0015)),slowC=(float)std::exp(-1.0/(rate*.035));fastEnv=level+fastC*(fastEnv-level);slowEnv=level+slowC*(slowEnv-level);if(refractory>0)--refractory;
-  constexpr float floor=1e-7f;bool onset=level>floor&&fastEnv>std::max(slowEnv*1.8f,floor)&&refractory==0;
+  constexpr float floor=1e-7f;
+  const bool onsetHigh=level>floor&&fastEnv>std::max(slowEnv*1.8f,floor);
+  const bool onset=onsetHigh&&!onsetWasHigh&&refractory==0;
+  onsetWasHigh=onsetHigh;
   if(onset||(!eventActive&&level>floor)){eventActive=true;eventAge=0;silenceSamples=0;eventPeak=std::max(level,fastEnv);refractory=std::max(1,(int)(rate*.012));}
   if(eventActive){++eventAge;eventPeak=std::max(eventPeak,level);float threshold=std::max(floor,eventPeak*.001f);if(fastEnv<threshold)++silenceSamples;else silenceSamples=0;if(silenceSamples>std::max(1,(int)(rate*.002)))eventActive=false;}
-  float target=eventActive?1.f:0.f;bool infinite=targetDurationMs>=1999.5f;if(eventActive&&!infinite&&eventAge>(int)(rate*targetDurationMs*.001f))target=targetSustain;
+  float target=eventActive?1.f:0.f;bool infinite=targetDurationMs>=1999.5f;
+  if(eventActive&&!infinite){
+   // Full-depth hold followed by a C1-continuous S-curve to the sustain level.
+   // This musical decay is independent of the short release on actual key end.
+   const float elapsedMs=float(eventAge*1000.0/rate);
+   const float decayMs=std::clamp(targetDurationMs*.5f,20.f,120.f);
+   const float t=std::clamp((elapsedMs-targetDurationMs)/decayMs,0.f,1.f);
+   const float eased=t*t*(3.f-2.f*t);
+   target=1.f+(targetSustain-1.f)*eased;
+  }
   float fadeC=(float)std::exp(-1.0/(rate*.004));keyShape=target>keyShape?target:target+fadeC*(keyShape-target);if(target==0&&keyShape<1e-5f)keyShape=0;return keyShape;
  }
  void frame()noexcept{
@@ -36,8 +48,8 @@ class Engine{
  }
 public:
  Engine(){for(int i=0;i<N;++i)window[i]=(float)std::sqrt(.5-.5*std::cos(6.283185307179586*i/N));reset(48000,1,0);}
- void reset(double sr,float influence,int selectedMode)noexcept{rate=std::max(1.,sr);keyFilter.reset(rate);bandDb.fill(0);lastCurve.fill(1);frameCounter=0;bypassMix=targetBypass=0;msPosition=targetMs=0;for(int k=0;k<=N/2;++k){double p=std::clamp(std::log(std::max(20.,k*rate/N)/20.)/std::log(1000.)*(bandCount-1),0.,double(bandCount-1));int j=std::min(bandCount-2,(int)p);bandIndex[k]=j;bandFrac[k]=(float)(p-j);}pos=outPos=hop=priming=0;envelope=0;fastEnv=slowEnv=eventPeak=keyShape=0;eventAge=refractory=silenceSamples=0;eventActive=false;for(auto*a:{&input,&key})for(auto&ch:*a)ch.fill(0);for(auto&ch:ola)ch.fill(0);gainOla.fill(0);ampGainDelay.fill(1);guardDelay.fill(0);amount=targetAmount=std::clamp(influence,0.f,1.5f);mode=targetMode=selectedMode?1.f:0.f;configure(influence,0,selectedMode);}
- void configure(float influence,float smoothingMs,int selectedMode,float scLow=20,float scHigh=20000,bool bypass=false,float ms=0,float durationMs=2000,float sustain=1)noexcept{keyFilter.set(scLow,scHigh);targetMs=std::clamp(ms,-1.f,1.f);targetBypass=bypass?1.f:0.f;targetAmount=std::clamp(influence,0.f,1.5f);targetMode=selectedMode?1.f:0.f;targetDurationMs=std::clamp(durationMs,20.f,2000.f);targetSustain=std::clamp(sustain,0.f,1.f);double seconds=std::max(0.f,smoothingMs)*.001;releaseSample=seconds>0?(float)std::exp(-1/(rate*seconds)):0;releaseFrame=seconds>0?(float)std::exp(-H/(rate*seconds)):0;slew=(float)std::exp(-1/(rate*.005));}
+ void reset(double sr,float influence,int selectedMode)noexcept{rate=std::max(1.,sr);keyFilter.reset(rate);bandDb.fill(0);lastCurve.fill(1);frameCounter=0;bypassMix=targetBypass=0;msPosition=targetMs=0;for(int k=0;k<=N/2;++k){double p=std::clamp(std::log(std::max(20.,k*rate/N)/20.)/std::log(1000.)*(bandCount-1),0.,double(bandCount-1));int j=std::min(bandCount-2,(int)p);bandIndex[k]=j;bandFrac[k]=(float)(p-j);}pos=outPos=hop=priming=0;envelope=0;fastEnv=slowEnv=eventPeak=keyShape=0;eventAge=refractory=silenceSamples=0;eventActive=false;onsetWasHigh=false;for(auto*a:{&input,&key})for(auto&ch:*a)ch.fill(0);for(auto&ch:ola)ch.fill(0);gainOla.fill(0);ampGainDelay.fill(1);guardDelay.fill(0);amount=targetAmount=std::clamp(influence,0.f,1.5f);mode=targetMode=selectedMode?1.f:0.f;configure(influence,0,selectedMode);}
+ void configure(float influence,float smoothingMs,int selectedMode,float scLow=20,float scHigh=20000,bool bypass=false,float ms=0,float durationMs=2000,float sustain=1)noexcept{keyFilter.set(scLow,scHigh);targetMs=std::clamp(ms,-1.f,1.f);targetBypass=bypass?1.f:0.f;targetAmount=std::clamp(influence,0.f,1.5f);targetMode=selectedMode?1.f:0.f;targetDurationMs=std::clamp(durationMs,1.f,2000.f);targetSustain=std::clamp(sustain,0.f,1.f);double seconds=std::max(0.f,smoothingMs)*.001;releaseSample=seconds>0?(float)std::exp(-1/(rate*seconds)):0;releaseFrame=seconds>0?(float)std::exp(-H/(rate*seconds)):0;slew=(float)std::exp(-1/(rate*.005));}
  unsigned getFrameCounter()const noexcept{return frameCounter;}void readCurve(std::array<float,32>&mid,std::array<float,32>&side)const noexcept{float wm=(float)(1-std::max(0.,msPosition)),ws=(float)(1+std::min(0.,msPosition));for(int j=0;j<32;++j){float reduction=(1-lastCurve[j])*(1-bypassMix);mid[j]=1-reduction*wm;side[j]=1-reduction*ws;}}static int latency(int selectedMode)noexcept{return selectedMode?0:N;}
  Sample process(std::array<float,2>bass,std::array<float,2>kick)noexcept{
   Sample result;for(auto&v:bass)v=clean(v);for(auto&v:kick)v=clean(v);kick=keyFilter.process(kick);float rawLevel=std::clamp(std::max(std::abs(kick[0]),std::abs(kick[1])),0.f,1.f),shape=shapeKey(rawLevel);for(auto&v:kick)v*=shape;float detector=std::clamp(std::max(std::abs(kick[0]),std::abs(kick[1])),0.f,1.f);envelope=detector>0?std::max(detector,envelope*releaseSample):0;
