@@ -1,33 +1,30 @@
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
-
-class PhasePocketLookAndFeel final : public juce::LookAndFeel_V4
-{
+class PocketLook final : public juce::LookAndFeel_V4 {
 public:
-    PhasePocketLookAndFeel();
-    void drawRotarySlider(juce::Graphics&, int, int, int, int, float, float, float, juce::Slider&) override;
+    PocketLook();
+    void drawRotarySlider(juce::Graphics&,int,int,int,int,float,float,float,juce::Slider&) override;
+    juce::Font getTextButtonFont(juce::TextButton&,int) override;
 };
-
-class PhasePocketAudioProcessorEditor final : public juce::AudioProcessorEditor, private juce::Timer
-{
+class PhasePocketAudioProcessorEditor final : public juce::AudioProcessorEditor,private juce::Timer {
 public:
     explicit PhasePocketAudioProcessorEditor(PhasePocketAudioProcessor&);
     ~PhasePocketAudioProcessorEditor() override;
     void paint(juce::Graphics&) override;
     void resized() override;
+    void refreshTrace();
 private:
-    void timerCallback() override;
-    void configureKnob(juce::Slider&, juce::Label&, const juce::String&);
+    void timerCallback() override {refreshTrace();}
     PhasePocketAudioProcessor& processor;
-    PhasePocketLookAndFeel lookAndFeel;
-    juce::Slider amount, tolerance, low, high, maxReduction, release;
-    juce::Label amountLabel, toleranceLabel, lowLabel, highLabel, maxReductionLabel, releaseLabel;
-    juce::ToggleButton phaseAware { "PHASE AWARE" };
-    juce::Label reductionReadout;
-    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    std::unique_ptr<SliderAttachment> amountAttachment, toleranceAttachment, lowAttachment, highAttachment, maxReductionAttachment, releaseAttachment;
-    std::unique_ptr<ButtonAttachment> phaseAttachment;
+    PocketLook look;
+    juce::Slider influence,smoothing;
+    juce::TextButton spectrum{"SPECTRUM"},amplitude{"AMPLITUDE"};
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> amountAttach,smoothAttach;
+    std::array<PocketTrace,600> history{};
+    int cursor=0;
+    float keyHold=0;
+    bool amplitudeMode=false;
+    juce::TooltipWindow tips{this,700};
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PhasePocketAudioProcessorEditor)
 };

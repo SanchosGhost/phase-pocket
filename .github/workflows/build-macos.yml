@@ -3,19 +3,25 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: phase-pocket-macos
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: macos-14
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Download JUCE 8.0.4
         run: |
-          curl -L https://github.com/juce-framework/JUCE/releases/download/8.0.4/juce-8.0.4-osx.zip -o juce.zip
+          curl -fL https://github.com/juce-framework/JUCE/releases/download/8.0.4/juce-8.0.4-osx.zip -o juce.zip
           unzip -q juce.zip
-      - name: Test spectral budget math
+      - name: Test actual DSP core
         run: |
-          c++ -std=c++17 -O2 Tests/spectral_budget_test.cpp -o spectral_budget_test
-          ./spectral_budget_test
+          c++ -std=c++17 -O2 Tests/dsp_test.cpp -o dsp_test
+          ./dsp_test
       - name: Configure universal build
         run: cmake -S . -B build -G Xcode -DJUCE_DIR="$PWD/JUCE" -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
       - name: Build
@@ -25,11 +31,24 @@ jobs:
           PLUGIN="build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3"
           codesign --force --deep --sign - "$PLUGIN"
           codesign --verify --deep --strict --verbose=2 "$PLUGIN"
-          file "$PLUGIN/Contents/MacOS/Phase Pocket"
-          lipo -info "$PLUGIN/Contents/MacOS/Phase Pocket"
-      - name: Package
-        run: ditto -c -k --sequesterRsrc --keepParent "build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3" PhasePocket-macOS-Universal-VST3.zip
+          lipo -verify_arch arm64 x86_64 "$PLUGIN/Contents/MacOS/Phase Pocket"
+      - name: Validate VST3 with pluginval
+        run: |
+          set -o pipefail
+          curl -fL https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip -o pluginval.zip
+          unzip -q pluginval.zip
+          chmod +x pluginval.app/Contents/MacOS/pluginval
+          pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --validate "$PWD/build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3" 2>&1 | tee pluginval.log
+      - name: Package validated plugin
+        run: ditto -c -k --sequesterRsrc --keepParent "build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3" PhasePocket-v0.2-macOS-Universal-VST3.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: PhasePocket-macOS-Universal-VST3
-          path: PhasePocket-macOS-Universal-VST3.zip
+          name: PhasePocket-v0.2-macOS-Universal-VST3
+          path: PhasePocket-v0.2-macOS-Universal-VST3.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validation-log
+          path: pluginval.log
+          if-no-files-found: ignore
