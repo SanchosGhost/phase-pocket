@@ -1,29 +1,26 @@
-# Phase Pocket 0.5
+# Phase Pocket 0.6
 
-Experimental JUCE 8.0.4 sidechain VST3 by Rainline Music. Default Amplitude, 100% Influence, 40ms Smoothing, Full Range filter, centred M/S.
+Experimental JUCE 8.0.4 sidechain VST3 by Rainline Music.
 
-## v0.5
-- Scope now shows actual processed L/mono output in muted blue and filtered key in white, one second.
-- Bypass desaturates the entire interface and adds a translucent grey overlay without blocking the bypass button.
-- Spectrum replaces history with current spectral reduction curves for Mid and Side, 20Hz–20kHz log frequency, 0dB top and negative infinity bottom. The ordinate compresses dB toward infinity (not evenly spaced dB); labels are explicitly positioned. Curves come from real band gains, not a simulated spectrum. They describe the current control curve, not a static measurement of the time-varying overlap-add system.
-- M/S replaces Stereo linked. Left processes only Mid and leaves Side dry; centre processes both; right processes only Side and leaves Mid dry. Intermediate positions reduce the other component's processing depth, not its output level. The added msBalance parameter is appended after existing IDs and has default zero. M/S changes are smoothed.
-- First-ever editor size is 900x672. Resize persists per instance and in project state, plus a local fallback for new instances. Theme/size file writes stay outside audio callback.
+## v0.6
 
-## Latency: honest split, not cosmetic relabelling
-Amplitude now uses the current input and current detector envelope, with ZERO samples of added algorithmic latency. Its steady-state gain equation is unchanged; the unnecessary 2048-sample delay was removed. The detector sidechain HP/LP phase response and smoothing are not audio buffering latency.
+- Dynamic VST3 latency is driven by the Mode parameter itself: Amplitude reports 0 samples and Spectrum reports 2048 samples. UI clicks, host automation and restored state all use the same message-thread notification path.
+- Spectrum adds a delayed 12 ms amplitude transient guard before handing control to the FFT reduction curve. This reduces the initial kick/bass sum peak but is not a true-peak limiter.
+- Smoothing controls movement inside an active event and no longer extends the sidechain after the event has ended. Event end uses a short 4 ms fade and an adaptive, peak-relative detector.
+- New Duration and Sustain parameters are appended after all existing IDs. Duration defaults to infinity (the 2000 ms maximum position); Sustain defaults to 100%, preserving existing sessions. Finite Duration shortens drum sidechains and Sustain controls the retained tail.
+- The editor has a new dark navy visual system based on layered gradients, recessed panels, electric-blue/cyan/violet accents, four large controls, spectral response and one-second output/key scope.
+- CI runs baseline/v0.4/v0.5/v0.6 DSP regression, universal macOS and Windows x64 builds, and pluginval strictness 5 on pushes and pull requests.
 
-Spectrum deliberately keeps the v0.4 FFT reconstruction and 2048-sample latency (42.67ms at 48kHz). Cutting the FFT window to 1–2ms loses low-frequency resolution. A causal IIR architecture could remove buffering but would change phase/time response; that was not silently substituted under a promise of no quality loss. The latency label is removed, but the real values are reported to the host.
+## Processing
 
-IMPORTANT: mode changes also change latency. Host notification occurs outside audio callback, from the message thread (immediate on UI click, polled at 30Hz for host parameter changes), then the active engine is switched. Change modes with transport stopped and allow host PDC to settle. Seamless/sample-accurate mode automation and mode changes during fast offline bounce are NOT supported/validated. Set the mode before rendering. No crossfade between differently delayed signals is used, avoiding a deliberate comb-filter transition.
+Amplitude follows the current filtered sidechain envelope with zero added algorithmic latency. Spectrum uses a 2048-sample FFT reconstruction with 512-sample hops and reports 2048 samples of latency. Mode changes notify the VST3 host from the message thread; the host may briefly interrupt playback while rebuilding delay compensation.
 
-## Core behavior
-Influence 0–100 is linear depth; 100–150 is exponential: 100=1x, 125=2.828x, 150=8x. Gain never becomes negative. Spectrum uses 32 overlapping log-energy bands and recovery smoothing, as introduced in v0.4; there is no phase-dependent quadratic summation budget in the active path. This is not a true-peak limiter and cannot guarantee an unchanged perceived kick timbre.
+Influence 0–100 is linear depth; 100–150 is exponential: 100=1x, 125=2.828x, 150=8x. Gain never becomes negative. Spectrum uses 32 overlapping log-energy bands.
 
-Key filter: non-resonant 12dB/oct HP+LP, full-range endpoints bypass. It filters only the key. Unselected M/S components remain unprocessed but retain Spectrum's common alignment delay. Mono input has no Side component.
+The key filter is a non-resonant 12dB/oct HP+LP. Full-range endpoints bypass it. M/S focus changes processing depth, not output level. Mono input has no Side component.
 
-## Builds and tests
-Actions builds macOS universal arm64+x86_64 and Windows x64 VST3. Both run baseline/v0.4/v0.5 DSP regression and pluginval strictness 5 before packaging. Artifacts: PhasePocket-v0.5-macOS-Universal-VST3 and PhasePocket-v0.5-Windows-x64-VST3. Current CI completion is not asserted by the source update. macOS ad-hoc signing is not notarization; Windows is unsigned.
+## Builds
 
-Local tests passed: actual zero-delay impulse/amplitude response; 44.1/48/96/192kHz; stereo M/S isolation and mixed M/S signal; flat response for unprocessed component; baseline filter/spectral tests. Native JUCE editor compiled and resize/reopen/project size persistence and reported per-mode latency tested in a Linux harness. Target DAW PDC behavior remains unverified.
+GitHub Actions builds macOS universal arm64+x86_64 and Windows x64 VST3 packages. macOS builds are ad-hoc signed, not notarized; Windows builds are unsigned.
 
-Temporary system Arial on macOS/Windows and Liberation Sans on Linux remain; no new font/dependency. Inter embedding and complete accessibility/target-host interaction audit remain unfinished. Existing parameter IDs/order/ranges are preserved; old projects intentionally acquire lower Amplitude latency. Back up old projects/plugins before replacement.
+This is experimental software. Back up old projects and plug-ins before replacement.
