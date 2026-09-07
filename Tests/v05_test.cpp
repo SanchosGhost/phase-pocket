@@ -1,0 +1,8 @@
+#include "../Source/PocketDSP.h"
+#include <memory>
+#include <iostream>
+#include <cstdlib>
+void check(bool ok,const char* msg){if(!ok){std::cerr<<"FAIL "<<msg<<'\n';std::exit(1);}}
+int main(){check(pocket::Engine::latency(1)==0,"Amplitude zero samples");check(pocket::Engine::latency(0)==2048,"Spectrum latency");for(double sr:{44100.,48000.,96000.,192000.}){auto e=std::make_unique<pocket::Engine>();e->reset(sr,1,1);e->configure(1,0,1);for(int i=0;i<2000;++i){float x=i==0?.9f:.4f;auto y=e->process({x,x},{.5f,.5f});check(std::abs(y.out[0]-.5f*x)<2e-6,"Amplitude instantaneous");}
+ for(int mode:{0,1})for(float ms:{-1.f,1.f}){e->reset(sr,1.5f,mode);e->configure(1.5f,40,mode,20,20000,false,ms);for(int n=0;n<(int)(sr*.2)+pocket::N;++n){float signal=.5f*(float)std::sin(n*.0123);std::array<float,2> bass=ms<0?std::array<float,2>{signal,-signal}:std::array<float,2>{signal,signal};auto y=e->process(bass,{.8f,.8f});if(n>sr*.15+pocket::N){check(std::abs(y.out[0]-y.dry[0])<3e-6,"unselected M/S unchanged");check(std::abs(y.out[1]-y.dry[1])<3e-6,"other channel unchanged");}}std::array<float,32> m{},s{};e->readCurve(m,s);for(int j=0;j<32;++j){check(m[j]>=0&&m[j]<=1&&s[j]>=0&&s[j]<=1,"response bounds");check((ms<0?s[j]:m[j])>.99999f,"unprocessed component flat");}}}
+ auto e=std::make_unique<pocket::Engine>();e->reset(48000,1,1);e->configure(1,0,1,20,20000,false,-1);for(int n=0;n<12000;++n){auto y=e->process({.7f,.1f},{.5f,.5f});if(n>10000){check(std::abs((y.out[0]-y.out[1])*.5f-.3f)<2e-6,"mixed signal keeps Side");check(std::abs((y.out[0]+y.out[1])*.5f-.2f)<2e-6,"mixed signal ducks Mid");}}std::cout<<"PASS v0.5 zero latency, MS and response\n";}

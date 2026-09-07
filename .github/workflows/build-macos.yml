@@ -24,6 +24,8 @@ jobs:
           ./dsp_test
           c++ -std=c++17 -O2 Tests/v04_test.cpp -o v04_test
           ./v04_test
+          c++ -std=c++17 -O2 Tests/v05_test.cpp -o v05_test
+          ./v05_test
       - name: Configure universal VST3
         run: cmake -S . -B build -G Xcode -DJUCE_DIR="$PWD/JUCE" -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
       - name: Build
@@ -42,11 +44,11 @@ jobs:
           chmod +x pluginval.app/Contents/MacOS/pluginval
           pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --validate "$PWD/build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3" 2>&1 | tee pluginval-macos.log
       - name: Package
-        run: ditto -c -k --sequesterRsrc --keepParent "build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3" PhasePocket-v0.4-macOS-Universal-VST3.zip
+        run: ditto -c -k --sequesterRsrc --keepParent "build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3" PhasePocket-v0.5-macOS-Universal-VST3.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: PhasePocket-v0.4-macOS-Universal-VST3
-          path: PhasePocket-v0.4-macOS-Universal-VST3.zip
+          name: PhasePocket-v0.5-macOS-Universal-VST3
+          path: PhasePocket-v0.5-macOS-Universal-VST3.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
@@ -68,13 +70,15 @@ jobs:
       - name: Configure x64 build and tests
         run: cmake -S . -B build -A x64 -DJUCE_DIR="${{ github.workspace }}/JUCE"
       - name: Build VST3 and DSP tests
-        run: cmake --build build --config Release --target PhasePocket_VST3 PocketCoreTest PocketV04Test
+        run: cmake --build build --config Release --target PhasePocket_VST3 PocketCoreTest PocketV04Test PocketV05Test
       - name: Run DSP tests
         shell: pwsh
         run: |
           & ./build/Release/PocketCoreTest.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ./build/Release/PocketV04Test.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./build/Release/PocketV05Test.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Validate Windows VST3
         shell: pwsh
@@ -87,11 +91,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package
         shell: pwsh
-        run: Compress-Archive -Path "build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3" -DestinationPath PhasePocket-v0.4-Windows-x64-VST3.zip
+        run: Compress-Archive -Path "build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3" -DestinationPath PhasePocket-v0.5-Windows-x64-VST3.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: PhasePocket-v0.4-Windows-x64-VST3
-          path: PhasePocket-v0.4-Windows-x64-VST3.zip
+          name: PhasePocket-v0.5-Windows-x64-VST3
+          path: PhasePocket-v0.5-Windows-x64-VST3.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
