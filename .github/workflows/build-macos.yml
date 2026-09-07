@@ -31,7 +31,8 @@ jobs:
           PLUGIN="build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3"
           codesign --force --deep --sign - "$PLUGIN"
           codesign --verify --deep --strict --verbose=2 "$PLUGIN"
-          lipo -verify_arch arm64 x86_64 "$PLUGIN/Contents/MacOS/Phase Pocket"
+          lipo "$PLUGIN/Contents/MacOS/Phase Pocket" -info
+          lipo "$PLUGIN/Contents/MacOS/Phase Pocket" -verify_arch arm64 x86_64
       - name: Validate VST3 with pluginval
         run: |
           set -o pipefail
