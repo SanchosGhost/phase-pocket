@@ -1,9 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "PocketDSP.h"
-struct PocketTrace {
-    float inLo=0,inHi=0,keyLo=0,keyHi=0,outLo=0,outHi=0,gain=1;
-};
+struct PocketTrace {float inLo=0,inHi=0,keyLo=0,keyHi=0,outLo=0,outHi=0,gain=1;};
 class PhasePocketAudioProcessor final : public juce::AudioProcessor {
 public:
     PhasePocketAudioProcessor();
@@ -32,7 +30,7 @@ public:
     std::atomic<float> keyPeak{0},gainMeter{1};
 private:
     pocket::Engine engine;
-    std::atomic<float>* influence=nullptr,* smoothing=nullptr,* mode=nullptr;
+    std::atomic<float>* influence=nullptr,* smoothing=nullptr,* mode=nullptr,* scLow=nullptr,* scHigh=nullptr;
     juce::AbstractFifo fifo{2048};
     std::array<PocketTrace,2048> traces{};
     PocketTrace capture;

@@ -4,12 +4,11 @@ PhasePocketAudioProcessor::PhasePocketAudioProcessor()
 : AudioProcessor(BusesProperties().withInput("Input",juce::AudioChannelSet::stereo(),true)
 .withInput("Sidechain",juce::AudioChannelSet::stereo(),true).withOutput("Output",juce::AudioChannelSet::stereo(),true)),
 parameters(*this,nullptr,"PARAMETERS",layout()) {
-    influence=parameters.getRawParameterValue("amount"); smoothing=parameters.getRawParameterValue("release"); mode=parameters.getRawParameterValue("mode");
+    influence=parameters.getRawParameterValue("amount");smoothing=parameters.getRawParameterValue("release");mode=parameters.getRawParameterValue("mode");scLow=parameters.getRawParameterValue("scLow");scHigh=parameters.getRawParameterValue("scHigh");
 }
 juce::AudioProcessorValueTreeState::ParameterLayout PhasePocketAudioProcessor::layout(){
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> p;
-    p.push_back(std::make_unique<juce::AudioParameterFloat>("amount","Influence",juce::NormalisableRange<float>(0,100,0.1f),100));
-    // Retain v0.1 IDs and ordering for old projects; legacy controls no longer affect DSP.
+    p.push_back(std::make_unique<juce::AudioParameterFloat>("amount","Influence",juce::NormalisableRange<float>(0,150,0.1f),100));
     p.push_back(std::make_unique<juce::AudioParameterFloat>("tolerance","Legacy Tolerance",0.f,6.f,1.f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>("low","Legacy Low",20.f,150.f,25.f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>("high","Legacy High",80.f,500.f,220.f));
@@ -17,41 +16,29 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhasePocketAudioProcessor::l
     p.push_back(std::make_unique<juce::AudioParameterFloat>("release","Smoothing",juce::NormalisableRange<float>(0,500,0.1f,0.4f),40));
     p.push_back(std::make_unique<juce::AudioParameterBool>("phaseAware","Legacy Phase",true));
     p.push_back(std::make_unique<juce::AudioParameterChoice>("mode","Mode",juce::StringArray{"Spectrum","Amplitude"},0));
+    p.push_back(std::make_unique<juce::AudioParameterFloat>("scLow","Sidechain Low",juce::NormalisableRange<float>(20,20000,1,0.2f),20));
+    p.push_back(std::make_unique<juce::AudioParameterFloat>("scHigh","Sidechain High",juce::NormalisableRange<float>(20,20000,1,0.2f),20000));
     return {p.begin(),p.end()};
 }
-void PhasePocketAudioProcessor::prepareToPlay(double sr,int){
-    engine.reset(sr,influence->load()*0.01f,(int)mode->load());
-    decimation=juce::jmax(1,(int)(sr/1200));captured=0;capture={};
-    setLatencySamples(pocket::N);
-}
+void PhasePocketAudioProcessor::prepareToPlay(double sr,int){engine.reset(sr,influence->load()*0.01f,(int)mode->load());decimation=juce::jmax(1,(int)(sr/1200));captured=0;capture={};setLatencySamples(pocket::N);}
 void PhasePocketAudioProcessor::reset(){engine.reset(juce::jmax(1.0,getSampleRate()),influence->load()*0.01f,(int)mode->load());captured=0;capture={};}
 bool PhasePocketAudioProcessor::isBusesLayoutSupported(const BusesLayout& l) const {
     if(l.inputBuses.size()!=2 || l.outputBuses.size()!=1)return false;
     auto in=l.getMainInputChannelSet(),out=l.getMainOutputChannelSet(),side=l.getChannelSet(true,1);
-    return in==out && (out==juce::AudioChannelSet::mono() || out==juce::AudioChannelSet::stereo())
-        && (side.isDisabled() || side==juce::AudioChannelSet::mono() || side==juce::AudioChannelSet::stereo());
+    return in==out && (out==juce::AudioChannelSet::mono() || out==juce::AudioChannelSet::stereo()) && (side.isDisabled() || side==juce::AudioChannelSet::mono() || side==juce::AudioChannelSet::stereo());
 }
 void PhasePocketAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBuffer&){
-    juce::ScopedNoDenormals noDenormals;
-    auto main=getBusBuffer(buffer,true,0),side=getBusBuffer(buffer,true,1);
-    engine.configure(influence->load()*0.01f,smoothing->load(),(int)mode->load());
-    if(main.getNumChannels()==0)return;
-    float peak=0,minimum=1;
+    juce::ScopedNoDenormals noDenormals;auto main=getBusBuffer(buffer,true,0),side=getBusBuffer(buffer,true,1);
+    engine.configure(influence->load()*0.01f,smoothing->load(),(int)mode->load(),scLow->load(),scHigh->load());
+    if(main.getNumChannels()==0)return;float peak=0,minimum=1;
     for(int n=0;n<buffer.getNumSamples();++n){
         std::array<float,2>b{},k{};
         for(int c=0;c<2;++c){b[c]=main.getSample(juce::jmin(c,main.getNumChannels()-1),n);if(side.getNumChannels()>0)k[c]=side.getSample(juce::jmin(c,side.getNumChannels()-1),n);}
-        peak=juce::jmax(peak,std::abs(k[0]),std::abs(k[1]));
-        auto v=engine.process(b,k);
-        for(int c=0;c<main.getNumChannels();++c)main.setSample(c,n,v.out[(size_t)c]);
-        minimum=juce::jmin(minimum,v.gain);
-        // Signed extrema preserve short transients. Display is L/mono, processing stereo-linked.
+        peak=juce::jmax(peak,std::abs(k[0]),std::abs(k[1]));auto v=engine.process(b,k);
+        for(int c=0;c<main.getNumChannels();++c)main.setSample(c,n,v.out[(size_t)c]);minimum=juce::jmin(minimum,v.gain);
         if(captured==0){capture={v.dry[0],v.dry[0],v.key[0],v.key[0],v.out[0],v.out[0],v.gain};}
-        else {capture.inLo=juce::jmin(capture.inLo,v.dry[0]);capture.inHi=juce::jmax(capture.inHi,v.dry[0]);
-            capture.keyLo=juce::jmin(capture.keyLo,v.key[0]);capture.keyHi=juce::jmax(capture.keyHi,v.key[0]);
-            capture.outLo=juce::jmin(capture.outLo,v.out[0]);capture.outHi=juce::jmax(capture.outHi,v.out[0]);capture.gain=juce::jmin(capture.gain,v.gain);}
-        if(++captured>=decimation){
-            int a,s,b2,s2;fifo.prepareToWrite(1,a,s,b2,s2);if(s){traces[(size_t)a]=capture;fifo.finishedWrite(1);} captured=0;
-        }
+        else {capture.inLo=juce::jmin(capture.inLo,v.dry[0]);capture.inHi=juce::jmax(capture.inHi,v.dry[0]);capture.keyLo=juce::jmin(capture.keyLo,v.key[0]);capture.keyHi=juce::jmax(capture.keyHi,v.key[0]);capture.outLo=juce::jmin(capture.outLo,v.out[0]);capture.outHi=juce::jmax(capture.outHi,v.out[0]);capture.gain=juce::jmin(capture.gain,v.gain);}
+        if(++captured>=decimation){int a,s,b2,s2;fifo.prepareToWrite(1,a,s,b2,s2);if(s){traces[(size_t)a]=capture;fifo.finishedWrite(1);}captured=0;}
     }
     keyPeak.store(peak);gainMeter.store(minimum);
 }
