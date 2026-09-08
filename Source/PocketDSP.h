@@ -11,6 +11,7 @@ class Engine {
     struct Delayed { std::array<float,2> dry{},key{}; };
     struct Peak { std::uint64_t index=0; float value=0; };
     SidechainFilter filter;
+    ProcessingRangeFilter processingFilter;
     std::vector<Delayed> delay;
     std::vector<Peak> peaks;
     size_t write=0,head=0,tail=0;
@@ -24,7 +25,6 @@ class Engine {
     static float clean(float v) noexcept { return std::isfinite(v)?v:0.f; }
 public:
     static int latencyForRate(double sr) noexcept { return std::max(1,int(std::ceil(std::max(1.,sr)*.001))); }
-    // Duration is the TOTAL event length. Its final 20% is a half-cosine fade.
     static float durationGain(double elapsedMs,float lengthMs) noexcept {
         if(lengthMs>=1999.5f)return 1;
         const double length=std::clamp(double(lengthMs),1.,2000.);
@@ -37,20 +37,21 @@ public:
         rate=std::max(1.,sr);lookahead=latencyForRate(rate);
         delay.assign(size_t(lookahead+1),{});peaks.assign(size_t(lookahead+2),{});
         write=head=tail=0;clock=age=0;refractory=quiet=0;
-        filter.reset(rate);amount=targetAmount=std::clamp(influence,0.f,1.5f);
+        filter.reset(rate);processingFilter.reset(rate);
+        amount=targetAmount=std::clamp(influence,0.f,1.5f);
         ms=targetMs=bypass=targetBypass=0;envelope=fast=slow=eventPeak=0;
         active=onsetHighPreviously=false;
         fastC=float(std::exp(-1/(rate*.0015)));slowC=float(std::exp(-1/(rate*.035)));
         releaseC=float(std::exp(-1/(rate*.04)));endC=float(std::exp(-1/(rate*.002)));
         slew=float(std::exp(-1/(rate*.005)));duration=2000;
     }
-    void configure(float influence,float durationMs,float low=20,float high=20000,bool bypassed=false,float balance=0) noexcept {
+    void configure(float influence,float durationMs,float low=20,float high=20000,bool bypassed=false,float balance=0,float processLow=20,float processHigh=20000) noexcept {
         targetAmount=std::clamp(clean(influence),0.f,1.5f);duration=std::clamp(clean(durationMs),1.f,2000.f);
-        filter.set(low,high);targetMs=std::clamp(clean(balance),-1.f,1.f);targetBypass=bypassed?1.f:0.f;
+        filter.set(low,high);processingFilter.set(processLow,processHigh);
+        targetMs=std::clamp(clean(balance),-1.f,1.f);targetBypass=bypassed?1.f:0.f;
     }
     Sample process(std::array<float,2> input,std::array<float,2> key) noexcept {
-        for(auto& v:input)v=clean(v);
-        for(auto& v:key)v=clean(v);
+        for(auto& v:input)v=clean(v);for(auto& v:key)v=clean(v);
         key=filter.process(key);
         const float level=std::clamp(std::max(std::abs(key[0]),std::abs(key[1])),0.f,1.f);
         fast=level+fastC*(fast-level);slow=level+slowC*(slow-level);
@@ -60,30 +61,27 @@ public:
         onsetHighPreviously=onsetHigh;
         if(onset||(!active&&level>std::max(1e-7f,eventPeak*.002f))){active=true;age=0;quiet=0;eventPeak=level;refractory=std::max(1,int(rate*.012));}
         if(active){eventPeak=std::max(eventPeak,level);quiet=fast<std::max(1e-7f,eventPeak*.001f)?quiet+1:0;if(quiet>int(rate*.002))active=false;}
-        envelope=std::max(level,envelope*(active?releaseC:endC));
-        if(envelope<1e-7f)envelope=0;
-        // Apply the length gate AFTER smoothing. 40 ms recovery cannot extend it.
+        envelope=std::max(level,envelope*(active?releaseC:endC));if(envelope<1e-7f)envelope=0;
         const float gate=duration>=1999.5f?1.f:(active?durationGain(double(age)*1000/rate,duration):0.f);
-        const float control=envelope*gate;
-        if(active)++age;
+        const float control=envelope*gate;if(active)++age;
         while(head!=tail&&clock>std::uint64_t(lookahead)&&peaks[head].index<clock-std::uint64_t(lookahead))head=(head+1)%peaks.size();
         while(head!=tail){size_t last=(tail+peaks.size()-1)%peaks.size();if(peaks[last].value>control)break;tail=last;}
         peaks[tail]={clock,control};tail=(tail+1)%peaks.size();
         const float predicted=peaks[head].value;
-        delay[write]={input,{key[0]*gate,key[1]*gate}};
-        const size_t read=(write+1)%delay.size();
+        delay[write]={input,{key[0]*gate,key[1]*gate}};const size_t read=(write+1)%delay.size();
         Sample result;result.dry=delay[read].dry;result.key=delay[read].key;
         amount=targetAmount+slew*(amount-targetAmount);ms=targetMs+slew*(ms-targetMs);bypass=targetBypass+slew*(bypass-targetBypass);
-        if(std::abs(amount-targetAmount)<1e-4f)amount=targetAmount;
-        if(std::abs(ms-targetMs)<1e-4f)ms=targetMs;
-        if(std::abs(bypass-targetBypass)<1e-4f)bypass=targetBypass;
+        if(std::abs(amount-targetAmount)<1e-4f)amount=targetAmount;if(std::abs(ms-targetMs)<1e-4f)ms=targetMs;if(std::abs(bypass-targetBypass)<1e-4f)bypass=targetBypass;
         const float reduction=std::clamp(effectiveDepth(amount)*predicted,0.f,1.f)*(1-bypass);
         const float gm=1-reduction*(1-std::max(0.f,ms)),gs=1-reduction*(1+std::min(0.f,ms));
         const float mid=(result.dry[0]+result.dry[1])*.5f,side=(result.dry[0]-result.dry[1])*.5f;
-        result.out={mid*gm+side*gs,mid*gm-side*gs};
-        if(reduction==0)result.out=result.dry;
-        const double power=double(mid)*mid+double(side)*side;
-        result.gain=power>1e-20?float(std::sqrt((double(mid)*mid*gm*gm+double(side)*side*gs*gs)/power)):1-reduction;
+        const auto band=processingFilter.process({mid,side});
+        const float processedMid=mid+(gm-1)*band[0],processedSide=side+(gs-1)*band[1];
+        result.out={processedMid+processedSide,processedMid-processedSide};
+        const double dryPower=double(mid)*mid+double(side)*side;
+        const double outPower=double(processedMid)*processedMid+double(processedSide)*processedSide;
+        result.gain=dryPower>1e-20?float(std::sqrt(outPower/dryPower)):1-reduction;
+        if(reduction==0){result.out=result.dry;result.gain=1;}
         write=read;++clock;return result;
     }
 };
