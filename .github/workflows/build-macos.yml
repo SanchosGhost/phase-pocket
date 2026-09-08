@@ -15,8 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  JUCE_VERSION: 8.0.4
-  PLUGIN_VERSION: 0.5
+  PLUGIN_VERSION: "0.5"
 
 jobs:
   macos:
@@ -34,26 +33,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download JUCE
+      - name: Download JUCE 8.0.4
         run: |
-          curl -fL "https://github.com/juce-framework/JUCE/releases/download/${JUCE_VERSION}/juce-${JUCE_VERSION}-osx.zip" -o juce.zip
+          curl -fL https://github.com/juce-framework/JUCE/releases/download/8.0.4/juce-8.0.4-osx.zip -o juce.zip
           unzip -q juce.zip
 
       - name: Run DSP regression tests
         run: |
-          c++ -std=c++17 -O2 Tests/dsp_test.cpp -o dsp_test
-          ./dsp_test
-          c++ -std=c++17 -O2 Tests/v04_test.cpp -o v04_test
-          ./v04_test
-          c++ -std=c++17 -O2 Tests/v05_test.cpp -o v05_test
-          ./v05_test
+          c++ -std=c++17 -O2 Tests/dsp_test.cpp -o dsp_test && ./dsp_test
+          c++ -std=c++17 -O2 Tests/v04_test.cpp -o v04_test && ./v04_test
+          c++ -std=c++17 -O2 Tests/v05_test.cpp -o v05_test && ./v05_test
 
       - name: Configure universal build
-        run: >-
-          cmake -S . -B build -G Xcode
-          -DJUCE_DIR="$PWD/JUCE"
-          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
-          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+        run: cmake -S . -B build -G Xcode -DJUCE_DIR="$PWD/JUCE" -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
       - name: Build VST3 and AAX
         run: cmake --build build --config Release --target PhasePocket_VST3 PhasePocket_AAX
@@ -64,10 +56,10 @@ jobs:
         run: |
           if [[ -z "$MACOS_CERTIFICATE" || -z "$MACOS_CERTIFICATE_PASSWORD" || -z "$MACOS_SIGNING_IDENTITY" ]]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Apple signing secrets are absent; producing ad-hoc signed development artifacts."
+            echo "No Apple certificate secrets: using ad-hoc signatures."
             exit 0
           fi
-          KEYCHAIN_PATH="$RUNNER_TEMP/phase-pocket-signing.keychain-db"
+          KEYCHAIN_PATH="$RUNNER_TEMP/phase-pocket.keychain-db"
           KEYCHAIN_PASSWORD="${MACOS_KEYCHAIN_PASSWORD:-temporary-password}"
           echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -79,7 +71,7 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
-      - name: Sign macOS plug-ins
+      - name: Sign plug-ins
         shell: bash
         run: |
           VST3="build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3"
@@ -96,25 +88,24 @@ jobs:
           lipo "$VST3/Contents/MacOS/Phase Pocket" -verify_arch arm64 x86_64
           lipo "$AAX/Contents/MacOS/Phase Pocket" -verify_arch arm64 x86_64
 
-      - name: Notarize and staple macOS plug-ins
+      - name: Notarize and staple plug-ins
         if: steps.apple-signing.outputs.enabled == 'true'
         shell: bash
         run: |
           if [[ -z "$APPLE_ID" || -z "$APPLE_TEAM_ID" || -z "$APPLE_APP_PASSWORD" ]]; then
-            echo "Apple notarization secrets are absent; skipping notarization."
+            echo "No notarization secrets: signed but not notarized."
             exit 0
           fi
           VST3="build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3"
           AAX="build/PhasePocket_artefacts/Release/AAX/Phase Pocket.aaxplugin"
-          ditto -c -k --keepParent "$VST3" "$RUNNER_TEMP/PhasePocket-VST3-notary.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/PhasePocket-VST3-notary.zip" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          ditto -c -k --keepParent "$VST3" "$RUNNER_TEMP/vst3-notary.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/vst3-notary.zip" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
           xcrun stapler staple "$VST3"
-          ditto -c -k --keepParent "$AAX" "$RUNNER_TEMP/PhasePocket-AAX-notary.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/PhasePocket-AAX-notary.zip" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          ditto -c -k --keepParent "$AAX" "$RUNNER_TEMP/aax-notary.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/aax-notary.zip" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
           xcrun stapler staple "$AAX"
 
       - name: Package macOS artifacts
-        shell: bash
         run: |
           ditto -c -k --sequesterRsrc --keepParent "build/PhasePocket_artefacts/Release/VST3/Phase Pocket.vst3" "PhasePocket-v${PLUGIN_VERSION}-macOS-Universal-VST3.zip"
           ditto -c -k --sequesterRsrc --keepParent "build/PhasePocket_artefacts/Release/AAX/Phase Pocket.aaxplugin" "PhasePocket-v${PLUGIN_VERSION}-macOS-Universal-AAX-Developer.zip"
@@ -138,18 +129,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download JUCE
+      - name: Download JUCE 8.0.4
         shell: pwsh
         run: |
-          Invoke-WebRequest "https://github.com/juce-framework/JUCE/archive/refs/tags/${env:JUCE_VERSION}.zip" -OutFile juce.zip
+          Invoke-WebRequest https://github.com/juce-framework/JUCE/archive/refs/tags/8.0.4.zip -OutFile juce.zip
           Expand-Archive juce.zip -DestinationPath juce-unpack
-          Move-Item "juce-unpack/JUCE-${env:JUCE_VERSION}" JUCE
+          Move-Item juce-unpack/JUCE-8.0.4 JUCE
 
       - name: Configure x64 build
         shell: pwsh
         run: cmake -S . -B build -A x64 -DJUCE_DIR="${{ github.workspace }}/JUCE"
 
-      - name: Build plug-ins and tests
+      - name: Build VST3, AAX and tests
         shell: pwsh
         run: cmake --build build --config Release --target PhasePocket_VST3 PhasePocket_AAX PocketCoreTest PocketV04Test PocketV05Test
 
