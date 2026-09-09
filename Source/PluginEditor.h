@@ -38,14 +38,14 @@ private:
     ModernDial duration{look,"Duration","Sidechain length","ms",0xff32d4cb,true};
     ModernDial outputGain{look,"Output","dB","dB",0xfff1e84b,true,true,true};
     ResettableRangeSlider sidechainRange,processingRange;juce::Slider midSide;
-    juce::TextButton settingsButton{"settings"},bypassButton{"power"},panelButton{"panel"},resetFilter{"Reset"},resetProcessing{"Reset"};
+    juce::TextButton settingsButton{"settings"},bypassButton{"power"},panelButton{"panel"};
     std::unique_ptr<SliderAttachment> influenceAttach,durationAttach,outputAttach,msAttach;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttach;
     std::unique_ptr<juce::ParameterAttachment> lowAttach,highAttach,processLowAttach,processHighAttach;
     std::unique_ptr<juce::PropertiesFile> preferences;
     std::array<PocketTrace,8192> history{};int cursor=0,filled=0;
     bool expanded=false,ready=false,rangeGesture=false,processRangeGesture=false,capturingBlur=false,bypassTarget=false;
-    double resizeStamp=0;float bypassMix=0;double gainWindow=.5,scopeWindow=1.;
+    double resizeStamp=0;float bypassMix=0;double gainWindow=1.,scopeWindow=1.;
     juce::Image blurredSnapshot;juce::Rectangle<int> blurArea;
     void timerCallback() override;void syncRange();void syncProcessingRange();void saveSize();
     void setTheme(PocketTheme,bool persist=true);void showSettingsMenu();void setHistoryWindow(bool gain,double seconds);void captureBlurSnapshot();
