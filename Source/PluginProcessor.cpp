@@ -3,6 +3,12 @@
 PhasePocketAudioProcessor::PhasePocketAudioProcessor():AudioProcessor(BusesProperties().withInput("Input",juce::AudioChannelSet::stereo(),true).withInput("Sidechain",juce::AudioChannelSet::stereo(),true).withOutput("Output",juce::AudioChannelSet::stereo(),true)),parameters(*this,nullptr,"PARAMETERS",layout()) {
     amount=parameters.getRawParameterValue("amount");duration=parameters.getRawParameterValue("duration");low=parameters.getRawParameterValue("scLow");high=parameters.getRawParameterValue("scHigh");bypass=parameters.getRawParameterValue("bypass");balance=parameters.getRawParameterValue("msBalance");processLow=parameters.getRawParameterValue("processLow");processHigh=parameters.getRawParameterValue("processHigh");outputGain=parameters.getRawParameterValue("outputGain");setLatencySamples(engine.latency());
 }
+static juce::NormalisableRange<float> logHzRange(){
+    return {20.f,20000.f,
+        [](float start,float end,float proportion){return start*std::pow(end/start,proportion);},
+        [](float start,float end,float value){return std::log(juce::jlimit(start,end,value)/start)/std::log(end/start);},
+        [](float start,float end,float value){return juce::jlimit(start,end,value);}};
+}
 juce::AudioProcessorValueTreeState::ParameterLayout PhasePocketAudioProcessor::layout(){
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> p;
     p.push_back(std::make_unique<juce::AudioParameterFloat>("amount","Influence",juce::NormalisableRange<float>(0,150,.1f),100.f));
@@ -13,15 +19,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhasePocketAudioProcessor::l
     p.push_back(std::make_unique<juce::AudioParameterFloat>("release","Legacy Smoothing (fixed 40 ms)",juce::NormalisableRange<float>(0,500,.1f,.4f),40.f));
     p.push_back(std::make_unique<juce::AudioParameterBool>("phaseAware","Legacy Phase",true));
     p.push_back(std::make_unique<juce::AudioParameterChoice>("mode","Legacy Mode (amplitude only)",juce::StringArray{"Legacy","Amplitude"},1));
-    p.push_back(std::make_unique<juce::AudioParameterFloat>("scLow","Sidechain Low",juce::NormalisableRange<float>(20,20000,.01f,.2f),20.f));
-    p.push_back(std::make_unique<juce::AudioParameterFloat>("scHigh","Sidechain High",juce::NormalisableRange<float>(20,20000,.01f,.2f),20000.f));
+    p.push_back(std::make_unique<juce::AudioParameterFloat>("scLow","Sidechain Low",logHzRange(),20.f));
+    p.push_back(std::make_unique<juce::AudioParameterFloat>("scHigh","Sidechain High",logHzRange(),20000.f));
     p.push_back(std::make_unique<juce::AudioParameterBool>("bypass","Bypass",false));
     p.push_back(std::make_unique<juce::AudioParameterFloat>("msBalance","M/S balance",juce::NormalisableRange<float>(-1,1,.001f),0.f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>("duration","Duration",juce::NormalisableRange<float>(1,2000,1,.35f),2000.f));
     p.push_back(std::make_unique<juce::AudioParameterFloat>("sustain","Legacy Sustain (fixed zero)",0.f,100.f,0.f));
-    p.push_back(std::make_unique<juce::AudioParameterFloat>("processLow","Processing Low",juce::NormalisableRange<float>(20,20000,.01f,.2f),20.f));
-    p.push_back(std::make_unique<juce::AudioParameterFloat>("processHigh","Processing High",juce::NormalisableRange<float>(20,20000,.01f,.2f),20000.f));
-    p.push_back(std::make_unique<juce::AudioParameterFloat>("outputGain","Output Gain",juce::NormalisableRange<float>(-100,6,.01f),0.f));
+    p.push_back(std::make_unique<juce::AudioParameterFloat>("processLow","Processing Low",logHzRange(),20.f));
+    p.push_back(std::make_unique<juce::AudioParameterFloat>("processHigh","Processing High",logHzRange(),20000.f));
+    p.push_back(std::make_unique<juce::AudioParameterFloat>("outputGain","Output Gain",juce::NormalisableRange<float>(-100.f,6.f,.01f,4.94f),0.f));
     return {p.begin(),p.end()};
 }
 void PhasePocketAudioProcessor::prepareToPlay(double sr,int){engine.reset(sr,amount->load()*.01f);setLatencySamples(engine.latency());decimation=juce::jmax(1,int(sr/1200));captured=0;capture={};}
