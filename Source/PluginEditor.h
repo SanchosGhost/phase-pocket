@@ -17,6 +17,8 @@ class ResettableRangeSlider final:public juce::Slider {
 public:
     std::function<void()> onReset;
     void mouseDoubleClick(const juce::MouseEvent&) override {if(onReset)onReset();}
+    double valueToProportionOfLength(double value) override {return std::log(juce::jlimit(20.,20000.,value)/20.)/std::log(1000.);}
+    double proportionOfLengthToValue(double proportion) override {return 20.*std::pow(1000.,juce::jlimit(0.,1.,proportion));}
 };
 class ModernDial final:public juce::Slider {
 public:
