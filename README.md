@@ -1,4 +1,4 @@
-# Phase Pocket 0.8
+# Phase Pocket
 
 ## v0.8
 - Scope now shows actual processed L/mono output in muted blue and filtered key in white, one second.
