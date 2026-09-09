@@ -9,32 +9,23 @@ public:
     std::atomic<bool> displayBypass{false},editorOpen{false};
     std::atomic<int> editorWidth{0};
     std::atomic<float> keyPeak{0},gainMeter{1};
-    void prepareToPlay(double,int) override;
-    void releaseResources() override {}
-    void reset() override;
+    void prepareToPlay(double,int) override;void releaseResources() override {}void reset() override;
     bool isBusesLayoutSupported(const BusesLayout&) const override;
     void processBlock(juce::AudioBuffer<float>&,juce::MidiBuffer&) override;
     void processBlockBypassed(juce::AudioBuffer<float>& b,juce::MidiBuffer& m) override {processAudio(b,m,true);}
     juce::AudioProcessorEditor* createEditor() override;
     juce::AudioProcessorParameter* getBypassParameter() const override {return parameters.getParameter("bypass");}
-    bool hasEditor() const override {return true;}
-    const juce::String getName() const override {return JucePlugin_Name;}
-    bool acceptsMidi() const override {return false;}
-    bool producesMidi() const override {return false;}
-    bool isMidiEffect() const override {return false;}
+    bool hasEditor() const override {return true;}const juce::String getName() const override {return JucePlugin_Name;}
+    bool acceptsMidi() const override {return false;}bool producesMidi() const override {return false;}bool isMidiEffect() const override {return false;}
     double getTailLengthSeconds() const override {return getLatencySamples()/juce::jmax(1.,getSampleRate());}
-    int getNumPrograms() override {return 1;}
-    int getCurrentProgram() override {return 0;}
-    void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override {return {};}
-    void changeProgramName(int,const juce::String&) override {}
-    void getStateInformation(juce::MemoryBlock&) override;
-    void setStateInformation(const void*,int) override;
+    int getNumPrograms() override {return 1;}int getCurrentProgram() override {return 0;}void setCurrentProgram(int) override {}
+    const juce::String getProgramName(int) override {return {};}void changeProgramName(int,const juce::String&) override {}
+    void getStateInformation(juce::MemoryBlock&) override;void setStateInformation(const void*,int) override;
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     juce::AudioProcessorValueTreeState parameters;
 private:
     pocket::Engine engine;
-    std::atomic<float>* amount=nullptr,*duration=nullptr,*low=nullptr,*high=nullptr,*bypass=nullptr,*balance=nullptr;
+    std::atomic<float>* amount=nullptr,*duration=nullptr,*low=nullptr,*high=nullptr,*bypass=nullptr,*balance=nullptr,*processLow=nullptr,*processHigh=nullptr,*outputGain=nullptr;
     void processAudio(juce::AudioBuffer<float>&,juce::MidiBuffer&,bool);
     juce::AbstractFifo fifo{4096};std::array<PocketTrace,4096> traces{};
     PocketTrace capture;double traceTime=0;int captured=0,decimation=40;
