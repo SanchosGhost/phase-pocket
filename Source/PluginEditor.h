@@ -13,11 +13,16 @@ public:
     void drawButtonText(juce::Graphics&,juce::TextButton&,bool,bool) override;
     void drawLinearSlider(juce::Graphics&,int,int,int,int,float,float,float,juce::Slider::SliderStyle,juce::Slider&) override;
 };
+class ResettableRangeSlider final:public juce::Slider {
+public:
+    std::function<void()> onReset;
+    void mouseDoubleClick(const juce::MouseEvent&) override {if(onReset)onReset();}
+};
 class ModernDial final:public juce::Slider {
 public:
-    ModernDial(PocketLook&,juce::String,juce::String,juce::String,juce::uint32,bool=false);void paint(juce::Graphics&) override;
+    ModernDial(PocketLook&,juce::String,juce::String,juce::String,juce::uint32,bool=false,bool=false,bool=false);void paint(juce::Graphics&) override;
 private:
-    PocketLook& look;juce::String title,subtitle,unit;juce::uint32 accent;bool infinity;
+    PocketLook& look;juce::String title,subtitle,unit;juce::uint32 accent;bool infinity,infinityAtMin,compact;
 };
 class PhasePocketAudioProcessorEditor final:public juce::AudioProcessorEditor,private juce::Timer {
 public:
@@ -29,15 +34,16 @@ private:
     PhasePocketAudioProcessor& audioProcessor;PocketLook look;
     ModernDial influence{look,"Influence","Depth","%",0xff5987ff};
     ModernDial duration{look,"Duration","Sidechain length","ms",0xff32d4cb,true};
-    juce::Slider sidechainRange,processingRange,midSide;
+    ModernDial outputGain{look,"Output","dB","dB",0xfff1e84b,true,true,true};
+    ResettableRangeSlider sidechainRange,processingRange;juce::Slider midSide;
     juce::TextButton settingsButton{"settings"},bypassButton{"power"},panelButton{"panel"},resetFilter{"Reset"},resetProcessing{"Reset"};
-    std::unique_ptr<SliderAttachment> influenceAttach,durationAttach,msAttach;
+    std::unique_ptr<SliderAttachment> influenceAttach,durationAttach,outputAttach,msAttach;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttach;
     std::unique_ptr<juce::ParameterAttachment> lowAttach,highAttach,processLowAttach,processHighAttach;
     std::unique_ptr<juce::PropertiesFile> preferences;
     std::array<PocketTrace,8192> history{};int cursor=0,filled=0;
     bool expanded=false,ready=false,rangeGesture=false,processRangeGesture=false,capturingBlur=false,bypassTarget=false;
-    double resizeStamp=0,lastFrameMs=0;float bypassMix=0;double gainWindow=.5,scopeWindow=1.;
+    double resizeStamp=0;float bypassMix=0;double gainWindow=.5,scopeWindow=1.;
     juce::Image blurredSnapshot;juce::Rectangle<int> blurArea;
     void timerCallback() override;void syncRange();void syncProcessingRange();void saveSize();
     void setTheme(PocketTheme,bool persist=true);void showSettingsMenu();void setHistoryWindow(bool gain,double seconds);void captureBlurSnapshot();

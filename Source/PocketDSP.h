@@ -18,7 +18,7 @@ class Engine {
     std::uint64_t clock=0,age=0;
     int lookahead=48,refractory=0,quiet=0;
     double rate=48000;
-    float amount=1,targetAmount=1,ms=0,targetMs=0,bypass=0,targetBypass=0;
+    float amount=1,targetAmount=1,ms=0,targetMs=0,targetBypass=0,outputGain=1,targetOutputGain=1;
     float duration=2000,envelope=0,fast=0,slow=0,eventPeak=0;
     float fastC=0,slowC=0,releaseC=0,endC=0,slew=0;
     bool active=false,onsetHighPreviously=false;
@@ -39,16 +39,17 @@ public:
         write=head=tail=0;clock=age=0;refractory=quiet=0;
         filter.reset(rate);processingFilter.reset(rate);
         amount=targetAmount=std::clamp(influence,0.f,1.5f);
-        ms=targetMs=bypass=targetBypass=0;envelope=fast=slow=eventPeak=0;
+        ms=targetMs=targetBypass=0;outputGain=targetOutputGain=1;envelope=fast=slow=eventPeak=0;
         active=onsetHighPreviously=false;
         fastC=float(std::exp(-1/(rate*.0015)));slowC=float(std::exp(-1/(rate*.035)));
         releaseC=float(std::exp(-1/(rate*.04)));endC=float(std::exp(-1/(rate*.002)));
         slew=float(std::exp(-1/(rate*.005)));duration=2000;
     }
-    void configure(float influence,float durationMs,float low=20,float high=20000,bool bypassed=false,float balance=0,float processLow=20,float processHigh=20000) noexcept {
+    void configure(float influence,float durationMs,float low=20,float high=20000,bool bypassed=false,float balance=0,float processLow=20,float processHigh=20000,float outputDb=0) noexcept {
         targetAmount=std::clamp(clean(influence),0.f,1.5f);duration=std::clamp(clean(durationMs),1.f,2000.f);
         filter.set(low,high);processingFilter.set(processLow,processHigh);
         targetMs=std::clamp(clean(balance),-1.f,1.f);targetBypass=bypassed?1.f:0.f;
+        const float safeDb=std::clamp(clean(outputDb),-100.f,6.f);targetOutputGain=safeDb<=-99.995f?0.f:std::pow(10.f,safeDb/20.f);
     }
     Sample process(std::array<float,2> input,std::array<float,2> key) noexcept {
         for(auto& v:input)v=clean(v);for(auto& v:key)v=clean(v);
@@ -70,9 +71,9 @@ public:
         const float predicted=peaks[head].value;
         delay[write]={input,{key[0]*gate,key[1]*gate}};const size_t read=(write+1)%delay.size();
         Sample result;result.dry=delay[read].dry;result.key=delay[read].key;
-        amount=targetAmount+slew*(amount-targetAmount);ms=targetMs+slew*(ms-targetMs);bypass=targetBypass+slew*(bypass-targetBypass);
-        if(std::abs(amount-targetAmount)<1e-4f)amount=targetAmount;if(std::abs(ms-targetMs)<1e-4f)ms=targetMs;if(std::abs(bypass-targetBypass)<1e-4f)bypass=targetBypass;
-        const float reduction=std::clamp(effectiveDepth(amount)*predicted,0.f,1.f)*(1-bypass);
+        amount=targetAmount+slew*(amount-targetAmount);ms=targetMs+slew*(ms-targetMs);outputGain=targetOutputGain+slew*(outputGain-targetOutputGain);
+        if(std::abs(amount-targetAmount)<1e-4f)amount=targetAmount;if(std::abs(ms-targetMs)<1e-4f)ms=targetMs;if(std::abs(outputGain-targetOutputGain)<1e-6f)outputGain=targetOutputGain;
+        const float reduction=targetBypass>.5f?0.f:std::clamp(effectiveDepth(amount)*predicted,0.f,1.f);
         const float gm=1-reduction*(1-std::max(0.f,ms)),gs=1-reduction*(1+std::min(0.f,ms));
         const float mid=(result.dry[0]+result.dry[1])*.5f,side=(result.dry[0]-result.dry[1])*.5f;
         const auto band=processingFilter.process({mid,side});
@@ -82,6 +83,7 @@ public:
         const double outPower=double(processedMid)*processedMid+double(processedSide)*processedSide;
         result.gain=dryPower>1e-20?float(std::sqrt(outPower/dryPower)):1-reduction;
         if(reduction==0){result.out=result.dry;result.gain=1;}
+        if(targetBypass>.5f){result.out=result.dry;result.gain=1;}else{result.out[0]*=outputGain;result.out[1]*=outputGain;}
         write=read;++clock;return result;
     }
 };
